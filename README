@@ -1,0 +1,178 @@
+=== ComParE 2020, Mask Sub-Challenge ===
+
+v1.1
+
+I. Overview
+
+The Mask Sub-Challenge is about classifying speech chunks into the two categories:
+ clear: Recorded when speaking normally.
+ mask: Recorded when speaking through a surgical mask.
+This Sub-Challenge is based on a corpus recorded at the University of Passau.
+
+The labels need to be recognised from the given audio signals.  
+
+Python scripts are provided to reproduce the baseline. They have been tested on Ubuntu 16.04.
+
+The participants are required to provide one label (clear, mask) for every instance in the test set, in a single CSV file,
+in the following format:
+
+file_name,prediction
+test_00001.wav,clear
+test_00002.wav,mask
+test_00003.wav,mask
+test_00004.wav,mask
+test_00005.wav,clear
+[...]
+
+PLEASE NOTE THAT THE SUBMISSION FORMAT HAS CHANGED, COMPARED TO THE 2009-2018 CHALLENGES OF THE COMPARE SERIES.
+
+Each registered team has up to five (5) submissions for this Sub-Challenge.
+The official metric for this Sub-Challenge is the Unweighted Average Recall (UAR), i.e., the mean of the recalls for each class.
+
+To submit your csv files, login on the website: http://www5.cs.fau.de/compare/
+with the credentials you received from the organisers.
+
+More information on the challenge: >http://www.compare.openaudio.eu/compare2020/
+
+Please note that each team needs to submit at least one regular paper to the ComParE 2020 Special Session at
+Interspeech 2020 in Shanghai, China.
+This paper may include your methods and results for several Sub-Challenges.
+
+
+II. Reproducing the baseline
+
+- Make sure you have a working installation of Python along with the following packages
+   -scikit-learn (tested with 0.20.2, requires also numpy and scipy)
+   -pandas (tested with 0.23.4)
+- Change to the "baseline/" directory (cd baseline).
+- Execute: python baseline.py
+    Note: There might be warnings from scikit-learn or scipy, which can be ignored.
+    The optimum UAR on the development partition, using the ComParE features set (default), should be 62.6 [%].
+- A file with predictions in the required format is written into the baseline/ folder.
+
+The script uses the corresponding features provided in the features/ folder.
+You can adjust the feature set used and the range of complexities used for the SVM in the baseline.py script.
+To reproduce the feature extraction process, please check Section III.
+
+Note: The official baseline results are given in the paper accompanying this challenge.
+The official baseline might be based on a fusion of the predictions from the optimum SVMs learned on each
+feature type (ComParE, BoAW, auDeep, DeepSpectrum). The fusion is done based only on the test predictions and is not included
+in the given baseline scripts.
+
+
+III. Reproducing the feature extraction
+
+Note: This step is not required in order to reproduce the baseline results as all feature files are available in the folder features/.
+
+
+IIIa. Reproducing the ComParE and BoAW features
+
+"ComParE" is the standard feature set for the ComParE challenge, including functionals of 65 low-level descriptors (LLDs) and their deltas,
+totalling up to 6373 acoustic features. The feature set is extracted with the openSMILE toolkit.
+The bag-of-audio-words (BoAW) approach is based on the acoustic LLDs, generating a term-frequency histogram representation of
+quantised audio words. The toolkit openXBOW is used to compute the BoAW features.
+
+- Make sure openSMILE 2.3.0 (https://www.audeering.com/opensmile/) with the executable SMILExtract is in an accessible location
+- Make sure openXBOW v1.0 (https://github.com/openXBOW/openXBOW) is in an accessible location in the JAVA classpath or in the "baseline/" folder
+   (jar-file is provided in this package).
+- Change to the "baseline/" directory (cd baseline).
+- In the script extractSMILE-XBOW.py, modify the path of the openSMILE executable and the ComParE_2016.conf configuration file (SMILEpath / SMILEconf).
+- Execute: python extractSMILE-XBOW.py
+   This extracts both the ComParE feature set (6373 descriptors for each instance) and the 130 ComParE LLDs from the wav files of all partitions
+   using openSMILE. Then, openXBOW computes different BoAW representations using codebooks of different sizes.
+   All features are stored in the folder "features/".
+
+For more information on openSMILE and the ComParE feature set, please be referred to:
+- [1] F. Eyben, F. Weninger, F. Groß, and B. Schuller: Recent Developments in openSMILE, the Munich Open-Source Multimedia Feature Extractor.
+  In Proceedings of the 21st ACM International Conference on Multimedia, pp. 835-838, ACM, Barcelona, Spain, 2013.
+
+For more information on openXBOW and the BoAW approach, please be referred to:
+- [2] M. Schmitt and B. Schuller: openXBOW - Introducing the Passau Open-Source Crossmodal Bag-of-Words Toolkit,
+  The Journal of Machine Learning Research, 18(96):1−5, 2017.
+
+
+IIIb. Reproducing the auDeep features
+
+auDeep (https://github.com/audeep/audeep) is a Python toolkit for unsupervised feature learning with deep neural networks 
+(DNNs). Currently, the main focus of this project is feature extraction from audio data with deep recurrent autoencoders. 
+However, the core feature learning algorithms are not limited to audio data. For ComParE 2020, learned representations are 
+obtained with a sequence-to-sequence autoencoder from spectrograms of the audio files ([3,4]).
+
+- Install auDeep as per the instructions provided with the auDeep distribution
+- Activate the Python virtualenv into which auDeep was installed (source <path-to-virtualenv>/bin/activate)
+- Change to the "baseline" directory.
+- Run the audeep_generate.sh script
+- Parameters for auDeep can be adjusted in the audeep_generate.sh script. If you want to re-run the feature generation
+  process after changing parameters, you need to delete the audeep_workspace folder. Also, adjusting the parameters may 
+  affect the number of features in the learned representations. In this case, you will need to adjust the 'feat_conf' mapping in the baseline.py file.
+  
+If you use auDeep or any code from auDeep in your research work, you are kindly asked to acknowledge the use of auDeep in your publications:
+- [3] S. Amiriparian, M. Freitag, N. Cummins, and B. Schuller: Sequence to Sequence Autoencoders for Unsupervised Representation Learning from Audio.
+  In Proceedings of the Detection and Classification of Acoustic Scenes and Events Workshop, Munich, Germany, 2017.  
+- [4] M. Freitag, S. Amiriparian, S. Pugachevskiy, N. Cummins, and B. Schuller: auDeep: Unsupervised Learning of Representations from Audio with Deep Recurrent Neural Networks.
+  The Journal of Machine Learning Research, 18(173):1–5, 2018.
+
+IIIc. Reproducing the DeepSpectrum features
+
+DeepSpectrum (https://github.com/DeepSpectrum/DeepSpectrum) is a Python toolkit for feature extraction from audio data with pre-trained Image Convolutional Neural Networks (CNNs). 
+It features an extraction pipeline which first creates visual representations for audio data - plots of spectrograms or chromagrams - and then feeds them to a pre-trained Image CNN. 
+Activations of a specific layer then form the final feature vectors [5].
+
+
+- Install DeepSpectrum as per the instructions provided with the DeepSpectrum distribution
+- Activate the Python virtualenv into which DeepSpectrum was installed ("source <name-of-DeepSpectrum-env>/bin/activate"  or "conda activate <name-of-DeepSpectrum-env>")
+- Change to the "baseline" directory.
+- Run the deepspectrum_generate.sh script
+- Parameters for DeepSpectrum can be adjusted in the deepspectrum_generate.sh script. Adjusting the parameters may affect the number of features in the learned representations.
+  In this case, you will need to adjust the 'feat_conf' mapping in the baseline.py file.
+  
+If you use DeepSpectrum or any code from DeepSpectrum in your research work, you are kindly asked to acknowledge the use of DeepSpectrum in your publications:
+- [5] S. Amiriparian, M. Gerczuk, S. Ottl, N. Cummins, M. Freitag, S. Pugachevskiy, and B. Schuller: Snore sound classification using image-based deep spectrum features. 
+  In Proceedings of INTERSPEECH 2017, 18th Annual Conference of the International Speech Communication Association. Stockholm, Sweden: ISCA, August 2017, pp. 3512–3516.
+
+IV. Directory structure
+
+baseline/: * Baseline recognition system *
+
+    baseline.py: Scripts to train an SVM-based model, optimising the complexity parameter on the development set and
+      writing the predictions for the test set.
+      For more information, please see section II.
+
+    extractSMILE-XBOW.py: This script reproduces the extraction of the ComParE and BoAW features provided in the folder features/.
+      For more information, please see section IIIa.
+
+    openXBOW.jar: openXBOW jar file, required by extractSMILE-XBOW.py.
+      For more information, please visit: https://github.com/openXBOW/openXBOW
+
+    audeep_generate.sh: This script reproduces the extraction of the auDeep features provided in the folder features/.
+      For more information, please see section IIIb.
+    
+    deepspectrum_generate.sh: This script reproduces the extraction of the DeepSpectrum features provided in the folder features/.
+      For more information, please see section IIIc.      
+    
+features/: csv files for different feature types (ComParE, BoAW, auDeep, DeepSpectrum) for each partition (train, devel, test)
+    These files do not contain any labels.
+    Naming convention: ComParE2020_Mask.<feature_set>.<set>.csv
+     where 'feature_set' in {ComParE, BoAW-125, BoAW-250, BoAW-500, BoAW-1000, BoAW-2000, auDeep-30, auDeep-45, auDeep-60, auDeep-75, auDeep-fused, DeepSpectrum_resnet50}
+     and 'set' in {train, devel, test}
+    Each row starts with the name of the corresponding audio instance (in wav/).
+    Note: Separators, offsets, and headers differ between the feature files, which is reflected in the baseline.py script (dictionary 'feat_conf',
+    selected by the variable 'feature_set').
+
+lab/: Label files
+	labels.csv: Containing the file names and labels of the training and development set and file names and '?' for the test set.
+	Fields:
+	 file_name
+	 label
+
+wav/: Waveform files (16bit) for training, development, and test sets
+	Filename convention: <set>_NNNN.wav where 
+	`set` in {train, devel, test} and 
+	NNNN = randomised sample number 
+
+
+V. Contact
+
+For any questions, please contact Alice Baird or Shahin Amiriparian:
+alice.baird@informatik.uni-augsburg.de
+shahin.amiriparian@informatik.uni-augsburg.de
