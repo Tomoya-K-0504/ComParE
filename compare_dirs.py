@@ -5,7 +5,7 @@ dirs = ['input/processed', 'output', 'model', 'notebook', 'src/preprocess', 'log
 tasks = ['mask', 'elderly', 'breathing']
 
 for dir in dirs:
-    if dir == 'tasks':
+    if dir in ['tasks', 'notebook']:
         Path(dir).mkdir(parents=True, exist_ok=True)
     for task in tasks:
         Path(f'{task}/{dir}').mkdir(parents=True, exist_ok=True)

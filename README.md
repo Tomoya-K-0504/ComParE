@@ -11,8 +11,10 @@ cd ml_pkg
 pip install requirements.txt
 python setup.py install
 cd ../
+mkdir -p apex/amp
 ```
 
+### For GPU users
 
 # Unzip data
 You need to change "password" position below into the password given from the organizer.
@@ -24,4 +26,8 @@ unzip ComParE2020_Breathing.zip -P password -d breathing/
 python compare_dirs.py
 ```
 
-# 
+# Execution
+```
+cd compare
+python mask/tasks/experiment.py
+```
