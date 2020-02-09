@@ -15,6 +15,11 @@ mkdir -p apex/amp
 ```
 
 ### For GPU users
+```
+git clone https://github.com/NVIDIA/apex
+cd apex
+pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
+```
 
 # Unzip data
 You need to change "password" position below into the password given from the organizer.
