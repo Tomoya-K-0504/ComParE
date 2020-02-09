@@ -199,7 +199,7 @@ if __name__ == '__main__':
             val_results.loc[i, len(hyperparameters):] = results
 
     (Path(__file__).resolve().parents[1] / 'output' / 'metrics').mkdir(exist_ok=True)
-    expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / f"{expt_conf['log_id']}.csv"
+    expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / f"{expt_conf['expt_id']}.csv"
     print(val_results)
     print(val_results.iloc[:, len(hyperparameters):].describe())
     val_results.to_csv(expt_path, index=False)
