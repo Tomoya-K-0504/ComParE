@@ -1,15 +1,12 @@
 #!/usr/bin/python
-import os
-import numpy as np
-import pandas as pd
 import argparse
-import os
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 from sklearn import svm
 from sklearn.metrics import recall_score, confusion_matrix
+from sklearn.preprocessing import MinMaxScaler
 
 
 def baseline_args(parser):
@@ -58,8 +55,8 @@ def main(conf_key, sub_task):
     header   = feat_conf[feature_set][3]
 
     # Path of the features and labels
-    features_path = f'../{sub_task}/features/'
-    label_file    = f'../{sub_task}/lab/labels.csv'
+    features_path = f'{sub_task}/features/'
+    label_file    = f'{sub_task}/lab/labels.csv'
 
     # Start
     print('\nRunning ' + task_name + ' ' + feature_set + ' baseline ... (this might take a while) \n')
@@ -112,8 +109,8 @@ def main(conf_key, sub_task):
     df = pd.DataFrame(data={'file_name': df_labels['file_name'][df_labels['file_name'].str.startswith('test')].values,
                             'prediction': y_pred.flatten()},
                       columns=['file_name','prediction'])
-    Path(f'../{sub_task}/output').mkdir(exist_ok=True)
-    df.to_csv(f'../{sub_task}/output/{pred_file_name}', index=False)
+    Path(f'{sub_task}/output').mkdir(exist_ok=True)
+    df.to_csv(f'{sub_task}/output/{pred_file_name}', index=False)
 
     print('Done.\n')
 
@@ -144,4 +141,4 @@ if __name__ == '__main__':
         uar_list.append((devel_max_uar * 100, complexity))
 
     pd.DataFrame(uar_list, columns=['devel_max_uar', 'complexity']).to_csv(
-        f"../{baseline_conf['sub_task']}/output/baseline.csv", index=False)
+        f"{baseline_conf['sub_task']}/output/baseline.csv", index=False)
