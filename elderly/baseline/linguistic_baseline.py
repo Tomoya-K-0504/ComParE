@@ -1,4 +1,3 @@
-#!/usr/bin/python
 from pathlib import Path
 
 import numpy as np
@@ -151,4 +150,3 @@ if __name__ == '__main__':
 
     pd.DataFrame(uar_list, columns=['devel_v_uar', 'v_C', 'devel_a_uar', 'a_C'], index=list(feat_conf.keys())).to_csv(
         Path(__file__).resolve().parents[1] / 'output' / 'ligistic_baseline.csv')
-
