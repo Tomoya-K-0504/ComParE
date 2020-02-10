@@ -114,9 +114,12 @@ if __name__ == '__main__':
             expt_conf[param] = pattern[idx]
 
         groups = None
-        # TODO below
-        if expt_conf['cv_name'] == 'group_k_fold':
-            raise NotImplementedError
+        if expt_conf['cv_name'] == 'group':
+            train_val_manifest = manifest_df[manifest_df['partition'] != 'test']
+            subjects = pd.DataFrame(train_val_manifest['filename_text'].str.slice(0, -4).unique())
+            subjects['group'] = [j % expt_conf['n_splits'] for j in range(len(subjects))]
+            subjects = subjects.set_index(0)
+            groups = train_val_manifest['filename_text'].str.slice(0, -4).apply(lambda x: subjects.loc[x, 'group'])
 
         if expt_conf['n_seed_average']:
             experimentor = SeedAverager(expt_conf, load_func, label_func, expt_conf['cv_name'], expt_conf['n_splits'],
