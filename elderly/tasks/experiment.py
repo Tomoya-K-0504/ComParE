@@ -2,6 +2,7 @@ import argparse
 import itertools
 from pathlib import Path
 
+import mlflow
 import numpy as np
 import pandas as pd
 from librosa.core import load
@@ -14,7 +15,7 @@ DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 def elderly_expt_args(parser):
     parser = base_expt_args(parser)
     expt_parser = parser.add_argument_group("Elderly Experiment arguments")
-    expt_parser.add_argument('--target', help='Valence or arousal', choices=['valence', 'arousal'])
+    expt_parser.add_argument('--target', help='Valence or arousal', choices=['valence', 'arousal'], default='valence')
 
     return parser
 
@@ -45,7 +46,6 @@ def set_load_func(data_dir, sr):
 
         assert wave.shape[0] == const_length, wave.shape[0]
         return wave.reshape((1, -1))
-
 
     return load_func
 
@@ -83,18 +83,18 @@ if __name__ == '__main__':
         'You need to select training, validation data file to training, validation in --train-path, --val-path argments'
 
     hyperparameters = {
-        'lr': [0.0001, 0.001],
-        # 'batch_size': [16, 64],
+        'pooling': ['average', 'max', 'attention'],
+        'model_type': ['attention_cnn']
     }
 
     expt_conf['class_names'] = [0, 1, 2]
     expt_conf['sample_rate'] = 16000
 
     load_func = set_load_func(Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav', expt_conf['sample_rate'])
-    target_col = 5 if expt_conf['sample_rate'] == 'valence' else 6
+    target_col = 5 if expt_conf['target'] == 'valence' else 6
     label_func = set_label_func(target_col)
 
-    val_metrics = ['loss', 'uar', 'f1']
+    val_metrics = ['loss', 'uar']
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
     for phase, part in zip(['train', 'val', 'infer'], ['train', 'devel', 'test']):
@@ -130,8 +130,15 @@ if __name__ == '__main__':
         else:
             experimentor = BaseExperimentor(expt_conf, load_func, label_func)
 
-        result_series, pred = experimentor.experiment_with_validation(val_metrics)
-        val_results.loc[i, len(hyperparameters):] = result_series
+        with mlflow.start_run():
+            mlflow.set_tag('target', expt_conf['target'])
+            result_series, pred = experimentor.experiment_with_validation(val_metrics)
+
+            val_results.loc[i, len(hyperparameters):] = result_series
+
+            mlflow.log_params(expt_conf)
+            mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
+            mlflow.log_metrics({metric_name: value for metric_name, value in zip(val_metrics, result_series)})
 
     (Path(__file__).resolve().parents[1] / 'output' / 'metrics').mkdir(exist_ok=True)
     expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / f"{expt_conf['expt_id']}.csv"
