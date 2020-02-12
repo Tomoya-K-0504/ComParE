@@ -58,7 +58,7 @@ def train_with_all(val_results, hyperparameter_list, expt_conf, experimentor):
         expt_conf[param] = best_pattern[idx]
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
-    infer_df = manifest_df[manifest_df['file_name'].str.startswith('test')]
+    infer_df = manifest_df[manifest_df['partition'] == 'test']
     train_devel_df = manifest_df[~manifest_df.index.isin(infer_df.index)]
     infer_df.to_csv(Path(expt_conf['manifest_path']).parent / f'infer_manifest.csv', index=False, header=None)
     train_devel_df.to_csv(Path(expt_conf['manifest_path']).parent / f'train_manifest.csv', index=False, header=None)
@@ -69,7 +69,7 @@ def train_with_all(val_results, hyperparameter_list, expt_conf, experimentor):
 
     sub_df = pd.read_csv(expt_conf['manifest_path'])
     sub_df = sub_df[sub_df['file_name'].str.startswith('test')]
-    sub_df['label'] = pd.Series(pred).apply(lambda x: list(LABEL2INT.keys())[x])
+    sub_df['label'] = pred
     sub_df.columns = ['file_name', 'prediction']
     (Path(__file__).resolve().parents[1] / 'output' / 'sub').mkdir(exist_ok=True)
     sub_name = f"{expt_conf['expt_id']}_{'_'.join(list(map(str, best_pattern)))}.csv"
