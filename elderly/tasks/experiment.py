@@ -50,7 +50,7 @@ def set_load_func(data_dir, sr):
     return load_func
 
 
-def train_with_all(val_results, hyperparameter_list, expt_conf, experimentor):
+def train_with_all(val_results, hyperparameter_list, expt_conf, experimentor, target_col):
     best_trial_idx = val_results['uar'].argmax()
     best_pattern = patterns[best_trial_idx]
 
@@ -68,9 +68,9 @@ def train_with_all(val_results, hyperparameter_list, expt_conf, experimentor):
     pred = experimentor.experiment_without_validation()
 
     sub_df = pd.read_csv(expt_conf['manifest_path'])
-    sub_df = sub_df[sub_df['file_name'].str.startswith('test')]
-    sub_df['label'] = pred
-    sub_df.columns = ['file_name', 'prediction']
+    sub_df = sub_df[manifest_df['partition'] == 'test']
+    sub_df.iloc[:, target_col] = pred
+    # sub_df.columns = ['file_name', 'prediction']
     (Path(__file__).resolve().parents[1] / 'output' / 'sub').mkdir(exist_ok=True)
     sub_name = f"{expt_conf['expt_id']}_{'_'.join(list(map(str, best_pattern)))}.csv"
     sub_df.to_csv(Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name, index=False)
@@ -140,12 +140,12 @@ if __name__ == '__main__':
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_metrics({metric_name: value for metric_name, value in zip(val_metrics, result_series)})
 
-    (Path(__file__).resolve().parents[1] / 'output' / 'metrics').mkdir(exist_ok=True)
-    expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / f"{expt_conf['expt_id']}.csv"
+    (Path(__file__).resolve().parents[1] / 'output' / 'metrics' / expt_conf['target']).mkdir(exist_ok=True)
+    expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / expt_conf['target'] / f"{expt_conf['expt_id']}.csv"
     print(val_results)
     print(val_results.iloc[:, len(hyperparameters):].describe())
     val_results.to_csv(expt_path, index=False)
 
     # Train with train + devel dataset
     if expt_conf['train_with_all']:
-        train_with_all(val_results, list(hyperparameters.keys()), expt_conf, experimentor)
+        train_with_all(val_results, list(hyperparameters.keys()), expt_conf, experimentor, target_col)
