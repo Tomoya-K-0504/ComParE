@@ -83,8 +83,8 @@ if __name__ == '__main__':
         'You need to select training, validation data file to training, validation in --train-path, --val-path argments'
 
     hyperparameters = {
-        'pooling': ['average', 'max', 'attention'],
-        'model_type': ['attention_cnn']
+        'checkpoint_path': [None, 'cnn14.pth'],
+        'model_type': ['panns']
     }
 
     expt_conf['class_names'] = [0, 1, 2]
@@ -136,7 +136,7 @@ if __name__ == '__main__':
 
             val_results.loc[i, len(hyperparameters):] = result_series
 
-            mlflow.log_params(expt_conf)
+            # mlflow.log_params(expt_conf)
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_metrics({metric_name: value for metric_name, value in zip(val_metrics, result_series)})
 
