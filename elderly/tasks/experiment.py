@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from librosa.core import load
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
-from ml.tasks.base_experiment import base_expt_args, BaseExperimentor, CrossValidator, SeedAverager
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 
@@ -83,8 +82,8 @@ if __name__ == '__main__':
         'You need to select training, validation data file to training, validation in --train-path, --val-path argments'
 
     hyperparameters = {
-        'checkpoint_path': [None, 'cnn14.pth'],
-        'model_type': ['panns']
+        'window_size': [0.04, 0.08, 0.12],
+        'window_stride': [0.02, 0.04, 0.06]
     }
 
     expt_conf['class_names'] = [0, 1, 2]
@@ -103,6 +102,7 @@ if __name__ == '__main__':
         expt_conf[f'{phase}_path'] = str(Path(expt_conf['manifest_path']).parent / f'{phase}_manifest.csv')
 
     patterns = list(itertools.product(*hyperparameters.values()))
+    patterns = [(w_size, w_stride) for w_size, w_stride in patterns if w_size > w_stride]
     val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(val_metrics))),
                                columns=list(hyperparameters.keys()) + val_metrics)
 
