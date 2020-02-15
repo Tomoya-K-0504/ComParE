@@ -95,6 +95,10 @@ def main(expt_conf):
 
     val_metrics = ['loss', 'uar']
 
+    (Path(__file__).resolve().parents[1] / 'output' / 'metrics' / expt_conf['target']).mkdir(exist_ok=True)
+    expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / expt_conf[
+        'target'] / f"{expt_conf['expt_id']}.csv"
+
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
     for phase, part in zip(['train', 'val', 'infer'], ['train', 'devel', 'test']):
         phase_df = manifest_df[manifest_df[f'partition'].str.startswith(part)]
@@ -140,9 +144,6 @@ def main(expt_conf):
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_metrics({metric_name: value for metric_name, value in zip(val_metrics, result_series)})
 
-    (Path(__file__).resolve().parents[1] / 'output' / 'metrics' / expt_conf['target']).mkdir(exist_ok=True)
-    expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / expt_conf[
-        'target'] / f"{expt_conf['expt_id']}.csv"
     print(val_results)
     print(val_results.iloc[:, len(hyperparameters):].describe())
     val_results.to_csv(expt_path, index=False)

@@ -1,93 +1,28 @@
 import argparse
 import itertools
+import pprint
+from copy import deepcopy
 from pathlib import Path
 
 import mlflow
 import numpy as np
 import pandas as pd
-from librosa.core import load
-from ml.src.dataloader import set_dataloader, set_ml_dataloader
-from ml.tasks.base_experiment import base_expt_args, BaseExperimentor, CrossValidator, SeedAverager
-
-DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
-LABELS2INT = {'L': 0, 'M': 1, 'H': 2}
-
-
-def elderly_expt_args(parser):
-    parser = base_expt_args(parser)
-    expt_parser = parser.add_argument_group("Elderly Experiment arguments")
-
-    return parser
+from experiment import LABELS2INT, elderly_expt_args, set_load_func
+from joblib import Parallel, delayed
+from ml.tasks.base_experiment import BaseExperimentor, CrossValidator
 
 
 def label_func(row):
     return row[5], row[6]
 
 
-def set_load_func(data_dir, sr):
-    const_sec = 5
-    const_length = sr * const_sec
-
-    def load_func(path):
-        wave = load(f'{data_dir}/{path[0]}', sr=sr)[0]
-
-        if wave.shape[0] == const_length:
-            return wave.reshape((1, -1))
-
-        elif wave.shape[0] > const_length:
-            diff = wave.shape[0] - const_length
-            wave = wave[diff // 2:-diff // 2]
-        else:
-            n_pad = (const_length - wave.shape[0]) // 2
-            wave = np.pad(wave, n_pad)[:const_length]
-
-        assert wave.shape[0] == const_length, wave.shape[0]
-        return wave.reshape((1, -1))
-
-    return load_func
-
-
-def train_with_all(val_results, hyperparameter_list, expt_conf, experimentor):
-    best_trial_idx = (val_results['v_uar'] + val_results['a_uar']).argmax()
-    best_pattern = patterns[best_trial_idx]
-
-    for idx, param in enumerate(hyperparameter_list):
-        expt_conf[param] = best_pattern[idx]
-
-    manifest_df = pd.read_csv(expt_conf['manifest_path'])
-    infer_df = manifest_df[manifest_df['partition'] == 'test']
-    train_devel_df = manifest_df[~manifest_df.index.isin(infer_df.index)]
-    infer_df.to_csv(Path(expt_conf['manifest_path']).parent / f'infer_manifest.csv', index=False, header=None)
-    train_devel_df.to_csv(Path(expt_conf['manifest_path']).parent / f'train_manifest.csv', index=False, header=None)
-    experimentor.cfg[f'infer_path'] = str(Path(expt_conf['manifest_path']).parent / f'infer_manifest.csv')
-    experimentor.cfg[f'train_path'] = str(Path(expt_conf['manifest_path']).parent / f'train_manifest.csv')
-
-    pred = experimentor.experiment_without_validation()
-
-    sub_name = f"{expt_conf['expt_id']}_{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.csv"
-    if (Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name).is_file():
-        sub_df = pd.read_csv(Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name)
-    else:
-        sub_df = manifest_df[manifest_df['partition'] == 'test'][['filename_text']]
-        (Path(__file__).resolve().parents[1] / 'output' / 'sub').mkdir(exist_ok=True)
-    for i, target in enumerate(expt_conf['target']):
-        sub_df[target] = pd.Series(pred[:, i]).apply(lambda x: list(LABELS2INT.keys())[x])
-    sub_df.to_csv(Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name, index=False)
-    print(f"Submission file is saved in {Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name}")
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='train arguments')
-    expt_conf = vars(elderly_expt_args(parser).parse_args())
-    assert expt_conf['train_path'] != '' or expt_conf['val_path'] != '', \
-        'You need to select training, validation data file to training, validation in --train-path, --val-path argments'
-
+def main(expt_conf):
     hyperparameters = {
         'model_type': ['multitask_panns'],
         'target': [['valence', 'arousal']],
         'checkpoint_path': ['../cnn14.pth'],
         'window_size': [0.08],
-        'window_stride': [0.02]
+        'window_stride': [0.01, 0.02]
     }
 
     expt_conf['class_names'] = [0, 1, 2]
@@ -109,25 +44,22 @@ if __name__ == '__main__':
     val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(val_metrics_columns))),
                                columns=list(hyperparameters.keys()) + val_metrics_columns)
 
-    for i, pattern in enumerate(patterns):
-        val_results.iloc[i, :len(hyperparameters)] = pattern
-        print(f'Pattern: \n{val_results.iloc[i, :len(hyperparameters)]}')
+    pp = pprint.PrettyPrinter(indent=4)
+    pp.pprint(hyperparameters)
 
+    groups = None
+    if expt_conf['cv_name'] == 'group':
+        train_val_manifest = manifest_df[manifest_df['partition'] != 'test']
+        subjects = pd.DataFrame(train_val_manifest['filename_text'].str.slice(0, -4).unique())
+        subjects['group'] = [j % expt_conf['n_splits'] for j in range(len(subjects))]
+        subjects = subjects.set_index(0)
+        groups = train_val_manifest['filename_text'].str.slice(0, -4).apply(lambda x: subjects.loc[x, 'group'])
+
+    def experiment(i, pattern, expt_conf):
         for idx, param in enumerate(hyperparameters.keys()):
             expt_conf[param] = pattern[idx]
 
-        groups = None
-        if expt_conf['cv_name'] == 'group':
-            train_val_manifest = manifest_df[manifest_df['partition'] != 'test']
-            subjects = pd.DataFrame(train_val_manifest['filename_text'].str.slice(0, -4).unique())
-            subjects['group'] = [j % expt_conf['n_splits'] for j in range(len(subjects))]
-            subjects = subjects.set_index(0)
-            groups = train_val_manifest['filename_text'].str.slice(0, -4).apply(lambda x: subjects.loc[x, 'group'])
-
-        if expt_conf['n_seed_average']:
-            experimentor = SeedAverager(expt_conf, load_func, label_func, expt_conf['cv_name'], expt_conf['n_splits'],
-                                        groups)
-        elif expt_conf['cv_name']:
+        if expt_conf['cv_name']:
             experimentor = CrossValidator(expt_conf, load_func, label_func, expt_conf['cv_name'], expt_conf['n_splits'],
                                           groups)
         else:
@@ -137,18 +69,68 @@ if __name__ == '__main__':
             mlflow.set_tag('target', expt_conf['target'])
             result_series, pred = experimentor.experiment_with_validation(val_metrics)
 
-            val_results.loc[i, len(hyperparameters):] = result_series
-
             # mlflow.log_params(expt_conf)
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_metrics({metric_name: value for metric_name, value in zip(val_metrics, result_series)})
+
+        return result_series, pred
+
+    # For debugging
+    if expt_conf['n_jobs'] == 1:
+        result_pred_list = [experiment(i, pattern, deepcopy(expt_conf)) for i, pattern in enumerate(patterns)]
+    else:
+        result_pred_list = Parallel(n_jobs=expt_conf['n_jobs'], verbose=0)(
+            [delayed(experiment)(i, pattern, deepcopy(expt_conf)) for i, pattern in enumerate(patterns)])
+
+    val_results.iloc[:, :len(hyperparameters)] = patterns
+    result_list = [result for result, pred in result_pred_list]
+    pred_list = np.array([pred for result, pred in result_pred_list])
+    val_results.iloc[:, len(hyperparameters):] = result_list
+    pp.pprint(val_results)
 
     (Path(__file__).resolve().parents[1] / 'output' / 'metrics').mkdir(exist_ok=True)
     expt_path = Path(__file__).resolve().parents[1] / 'output' / 'metrics' / f"{expt_conf['expt_id']}.csv"
     print(val_results)
     print(val_results.iloc[:, len(hyperparameters):].describe())
     val_results.to_csv(expt_path, index=False)
+    print(f'Devel results saved into {expt_path}')
 
     # Train with train + devel dataset
     if expt_conf['train_with_all']:
-        train_with_all(val_results, list(hyperparameters.keys()), expt_conf, experimentor)
+        best_trial_idx = (val_results['v_uar'] + val_results['a_uar']).argmax()
+        best_pattern = patterns[best_trial_idx]
+
+        for i, param in enumerate(hyperparameters.keys()):
+            expt_conf[param] = best_pattern[i]
+
+        infer_df = manifest_df[manifest_df['partition'] == 'test']
+        train_devel_df = manifest_df[~manifest_df.index.isin(infer_df.index)]
+        infer_df.to_csv(Path(expt_conf['manifest_path']).parent / f'infer_manifest.csv', index=False, header=None)
+        train_devel_df.to_csv(Path(expt_conf['manifest_path']).parent / f'train_manifest.csv', index=False, header=None)
+
+        expt_conf[f'infer_path'] = str(Path(expt_conf['manifest_path']).parent / f'infer_manifest.csv')
+        expt_conf[f'train_path'] = str(Path(expt_conf['manifest_path']).parent / f'train_manifest.csv')
+
+        experimentor = BaseExperimentor(expt_conf, load_func, label_func)
+
+        pred = experimentor.experiment_without_validation(seed_average=expt_conf['n_seed_average'])
+
+        sub_name = f"{expt_conf['expt_id']}_{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.csv"
+        if (Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name).is_file():
+            sub_df = pd.read_csv(Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name)
+        else:
+            sub_df = manifest_df[manifest_df['partition'] == 'test'][['filename_text']]
+            (Path(__file__).resolve().parents[1] / 'output' / 'sub').mkdir(exist_ok=True)
+        for i, target in enumerate(expt_conf['target']):
+            sub_df[target] = pd.Series(pred[:, i]).apply(lambda x: list(LABELS2INT.keys())[x])
+        sub_df.to_csv(Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name, index=False)
+        print(f"Submission file is saved in {Path(__file__).resolve().parents[1] / 'output' / 'sub' / sub_name}")
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='train arguments')
+    expt_conf = vars(elderly_expt_args(parser).parse_args())
+    assert expt_conf['train_path'] != '' or expt_conf['val_path'] != '', \
+        'You need to select training, validation data file to training, validation in --train-path, --val-path argments'
+
+    main(expt_conf)
