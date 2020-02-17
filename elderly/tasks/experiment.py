@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import json
 import logging
 import pprint
 from copy import deepcopy
@@ -14,7 +15,7 @@ from elderly_dataset import ManifestMultiWaveDataSet
 from joblib import Parallel, delayed
 from librosa.core import load
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
-from ml.tasks.base_experiment import BaseExperimentor, typical_experiment
+from ml.tasks.base_experiment import BaseExperimentor, typical_train
 from ml.tasks.base_experiment import base_expt_args
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
@@ -117,23 +118,41 @@ def main(expt_conf):
 
     logging.basicConfig(level=logging.DEBUG, format="[%(name)s] [%(levelname)s] %(message)s",
                         filename=expt_dir / 'expt.log')
-    hyperparameters = {
-        'target': ['valence', 'arousal'],
-        'window_size': [0.04],
-        'window_stride': [0.03],
-        'n_waves': [2]
-    }
+    expt_conf['log_dir'] = str(expt_dir / 'tensorboard')
 
-    expt_conf['class_names'] = [0, 1, 2]
+    if expt_conf['expt_id'] == 'debug':
+        hyperparameters = {
+            'target': ['valence', 'arousal'],
+            'batch_size': [2],
+            'model_type': ['panns'],
+            'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.02],
+            'window_stride': [0.01],
+            'n_waves': [2]
+        }
+    else:
+        hyperparameters = {
+            'target': ['valence', 'arousal'],
+            'batch_size': [8],
+            'model_type': ['panns'],
+            'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.08],
+            'window_stride': [0.02],
+            'n_waves': [1, 2, 3],
+            'epoch_rate': [1.0, 0.7, 0.4],
+        }
+
+    if expt_conf['task_type'] == 'classify':
+        expt_conf['class_names'] = [0, 1, 2]
+        val_metrics = ['loss', 'uar']
+    else:
+        expt_conf['class_names'] = [0]
+        val_metrics = ['loss']
     expt_conf['sample_rate'] = 16000
 
     target_col = 5 if expt_conf['target'] == 'valence' else 6
     label_func = set_label_func(target_col)
     dataset_cls = ManifestMultiWaveDataSet
-
-    val_metrics = ['loss', 'uar']
-
-    (Path(__file__).resolve().parents[1] / 'output' / 'metrics' / expt_conf['target']).mkdir(exist_ok=True)
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
@@ -153,18 +172,20 @@ def main(expt_conf):
     def experiment(pattern, expt_conf):
         for i, param in enumerate(hyperparameters.keys()):
             expt_conf[param] = pattern[i]
+
         expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in pattern])}.pth")
+        expt_conf['log_id'] = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
         load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
 
         with mlflow.start_run():
             mlflow.set_tag('target', expt_conf['target'])
-            result_series, pred = typical_experiment(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
+            result_series, val_pred = typical_train(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
 
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_artifacts(expt_dir)
 
-        return result_series, pred
+        return result_series, val_pred
 
     # For debugging
     if expt_conf['n_jobs'] == 1:
@@ -177,13 +198,17 @@ def main(expt_conf):
 
     val_results.iloc[:, :len(hyperparameters)] = patterns
     result_list = [result for result, pred in result_pred_list]
-    pred_list = np.array([pred for result, pred in result_pred_list])
     val_results.iloc[:, len(hyperparameters):] = result_list
     pp.pprint(val_results)
-
     pp.pprint(val_results.iloc[:, len(hyperparameters):].describe())
+
     val_results.to_csv(expt_dir / 'val_results.csv', index=False)
     print(f"Devel results saved into {expt_dir / 'val_results.csv'}")
+    for (_, pred), pattern in zip(result_pred_list, patterns):
+        pattern_name = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
+        pd.DataFrame(pred).to_csv(expt_dir / f'{pattern_name}_val_pred.csv', index=False)
+        with open(expt_dir / f'{pattern_name}.txt', 'w') as f:
+            json.dump(expt_conf, f, indent=4)
 
     # Train with train + devel dataset
     if expt_conf['train_with_all']:
@@ -194,6 +219,8 @@ def main(expt_conf):
 
         expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.pth")
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
+        wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
+        load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
         experimentor = BaseExperimentor(expt_conf, load_func, label_func, dataset_cls)
 
         pred = experimentor.experiment_without_validation(seed_average=expt_conf['n_seed_average'])
@@ -219,3 +246,7 @@ if __name__ == '__main__':
     logging.getLogger("ml").addHandler(console)
 
     main(expt_conf)
+
+    if expt_conf['expt_id'] == 'debug':
+        import shutil
+        shutil.rmtree('./mlruns')
