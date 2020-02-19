@@ -109,7 +109,7 @@ def get_cv_groups(expt_conf):
     return groups
 
 
-def main(expt_conf):
+def main(expt_conf, hyperparameters):
     if expt_conf['expt_id'] == 'timestamp':
         expt_conf['expt_id'] = dt.today().strftime('%Y-%m-%d_%H:%M')
 
@@ -119,28 +119,6 @@ def main(expt_conf):
     logging.basicConfig(level=logging.DEBUG, format="[%(name)s] [%(levelname)s] %(message)s",
                         filename=expt_dir / 'expt.log')
     expt_conf['log_dir'] = str(expt_dir / 'tensorboard')
-
-    if expt_conf['expt_id'] == 'debug':
-        hyperparameters = {
-            'target': ['valence', 'arousal'],
-            'batch_size': [2],
-            'model_type': ['panns'],
-            'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.02],
-            'window_stride': [0.01],
-            'n_waves': [2]
-        }
-    else:
-        hyperparameters = {
-            'target': ['valence', 'arousal'],
-            'batch_size': [8],
-            'model_type': ['panns'],
-            'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.08],
-            'window_stride': [0.02],
-            'n_waves': [1, 2, 3],
-            'epoch_rate': [1.0, 0.7, 0.4],
-        }
 
     if expt_conf['task_type'] == 'classify':
         expt_conf['class_names'] = [0, 1, 2]
@@ -245,7 +223,32 @@ if __name__ == '__main__':
     console.setLevel(logging.DEBUG)
     logging.getLogger("ml").addHandler(console)
 
-    main(expt_conf)
+    if expt_conf['expt_id'] == 'debug':
+        hyperparameters = {
+            'target': ['valence', 'arousal'],
+            'batch_size': [2],
+            'model_type': ['panns'],
+            'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.02],
+            'window_stride': [0.01],
+            'n_waves': [1],
+            'epoch_rate': [0.2],
+            'mixup_alpha': [0.1],
+        }
+    else:
+        hyperparameters = {
+            'target': ['valence', 'arousal'],
+            'batch_size': [8],
+            'model_type': ['panns'],
+            'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.08],
+            'window_stride': [0.02],
+            'n_waves': [1],
+            'epoch_rate': [1.0],
+            'mixup_alpha': [0.0, 0.2, 0.4],
+        }
+
+    main(expt_conf, hyperparameters)
 
     if expt_conf['expt_id'] == 'debug':
         import shutil
