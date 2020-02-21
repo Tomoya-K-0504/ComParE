@@ -6,21 +6,40 @@ import pprint
 from copy import deepcopy
 from datetime import datetime as dt
 from pathlib import Path
+from typing import List
 
 import mlflow
 import numpy as np
 import pandas as pd
-from experiment import LABELS2INT, elderly_expt_args, set_load_func, set_data_paths, get_cv_groups
+from experiment import LABELS2INT, set_load_func, set_data_paths, get_cv_groups
 from joblib import Parallel, delayed
 from ml.src.dataset import ManifestWaveDataSet
-from ml.tasks.base_experiment import BaseExperimentor, typical_train
+from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args
 
 
-def label_func(row):
-    return row[5], row[6]
+def type_float_list(args) -> List[str]:
+    return args.split(',')
 
 
-def main(expt_conf):
+def elderly_expt_args(parser):
+    parser = base_expt_args(parser)
+    expt_parser = parser.add_argument_group("Elderly Experiment arguments")
+    expt_parser.add_argument('--target', help='Valence or arousal', default='valence,arousal', type=type_float_list)
+
+    return parser
+
+
+def set_label_func(targets):
+    col_index = {'valence': 5, 'arousal': 6, 'valence_mean': 8, 'valence_dev': 9, 'arousal_mean': 10, 'arousal_dev': 11}
+    assert targets[0] in set(col_index.keys()) and targets[1] in set(col_index.keys())
+
+    def label_func(row):
+        return row[col_index[targets[0]]], row[col_index[targets[1]]]
+
+    return label_func
+
+
+def main(expt_conf, hyperparameters):
     if expt_conf['expt_id'] == 'timestamp':
         expt_conf['expt_id'] = dt.today().strftime('%Y-%m-%d_%H:%M')
 
@@ -31,34 +50,18 @@ def main(expt_conf):
                         filename=expt_dir / 'expt.log')
     expt_conf['log_dir'] = str(expt_dir / 'tensorboard')
 
-    if expt_conf['expt_id'] == 'debug':
-        hyperparameters = {
-            'model_type': ['multitask_panns'],
-            'batch_size': [1],
-            'target': [['valence', 'arousal']],
-            'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.04],
-            'window_stride': [0.03],
-            'n_waves': [1]
-        }
+    if expt_conf['task_type'] == 'classify':
+        expt_conf['class_names'] = [0, 1, 2]
+        val_metrics = ['loss', 'uar', 'loss', 'uar']
+        val_metrics_columns = ['v_loss', 'v_uar', 'a_loss', 'a_uar']
     else:
-        hyperparameters = {
-            'model_type': ['multitask_panns'],
-            'batch_size': [8],
-            'target': [['valence', 'arousal']],
-            'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.08],
-            'window_stride': [0.02],
-            'n_waves': [1]
-        }
-
-    expt_conf['class_names'] = [0, 1, 2]
+        expt_conf['class_names'] = [0]
+        val_metrics = ['loss', 'loss']
+        val_metrics_columns = ['target_1_loss', 'target_2_loss']
     expt_conf['sample_rate'] = 16000
-    expt_conf['n_tasks'] = 2
 
     dataset_cls = ManifestWaveDataSet
-    val_metrics = ['loss', 'uar', 'loss', 'uar']
-    val_metrics_columns = ['v_loss', 'v_uar', 'a_loss', 'a_uar']
+    label_func = set_label_func(expt_conf['target'])
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
@@ -89,7 +92,6 @@ def main(expt_conf):
             result_series, val_pred = typical_train(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
 
             mlflow.log_metrics({metric_name: value for metric_name, value in zip(val_metrics_columns, result_series)})
-            mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_artifacts(expt_dir)
 
         return result_series, val_pred
@@ -107,21 +109,24 @@ def main(expt_conf):
     result_list = [result for result, pred in result_pred_list]
     val_results.iloc[:, len(hyperparameters):] = result_list
     pp.pprint(val_results)
-
     pp.pprint(val_results.iloc[:, len(hyperparameters):].describe())
+
     val_results.to_csv(expt_dir / 'val_results.csv', index=False)
     print(f"Devel results saved into {expt_dir / 'val_results.csv'}")
     for (_, pred), pattern in zip(result_pred_list, patterns):
         pattern_name = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
-        pd.Series(pred).to_csv(expt_dir / f'{pattern_name}_val_pred.csv', index=False)
+        pd.DataFrame(pred).to_csv(expt_dir / f'{pattern_name}_val_pred.csv', index=False)
         with open(expt_dir / f'{pattern_name}.txt', 'w') as f:
             json.dump(expt_conf, f, indent=4)
 
     # Train with train + devel dataset
     if expt_conf['train_with_all']:
-        best_trial_idx = (val_results['v_uar'] + val_results['a_uar']).argmax()
-        best_pattern = patterns[best_trial_idx]
+        if expt_conf['task_type'] == 'classify':
+            best_trial_idx = (val_results['v_uar'] + val_results['a_uar']).argmax()
+        else:
+            best_trial_idx = (val_results['target_1_loss'] + val_results['target_2_loss']).argmin()
 
+        best_pattern = patterns[best_trial_idx]
         for i, param in enumerate(hyperparameters.keys()):
             expt_conf[param] = best_pattern[i]
 
@@ -138,8 +143,12 @@ def main(expt_conf):
             sub_df = pd.read_csv(expt_dir / sub_name)
         else:
             sub_df = manifest_df[manifest_df['partition'] == 'test'][['filename_text']]
+
         for i, target in enumerate(expt_conf['target']):
-            sub_df[target] = pd.Series(pred[:, i]).apply(lambda x: list(LABELS2INT.keys())[x])
+            if expt_conf['task_type'] == 'classify':
+                sub_df[target] = pd.Series(pred[:, i]).apply(lambda x: list(LABELS2INT.keys())[x])
+            else:
+                sub_df[target] = pred[:, i]
         sub_df.to_csv(expt_dir / sub_name, index=False)
         print(f"Submission file is saved in {expt_dir / sub_name}")
 
@@ -147,12 +156,41 @@ def main(expt_conf):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='train arguments')
     expt_conf = vars(elderly_expt_args(parser).parse_args())
-    assert expt_conf['train_path'] != '' or expt_conf['val_path'] != '', \
-        'You need to select training, validation data file to training, validation in --train-path, --val-path argments'
 
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("[%(name)s] [%(levelname)s] %(message)s"))
-    console.setLevel(logging.INFO)
+    console.setLevel(logging.DEBUG)
     logging.getLogger("ml").addHandler(console)
 
-    main(expt_conf)
+    expt_conf['n_tasks'] = len(expt_conf['target'])
+
+    if 'valence' not in expt_conf['target'] or 'arousal' not in expt_conf['target']:
+        expt_conf['task_type'] = 'regress'
+
+    if expt_conf['expt_id'] == 'debug':
+        hyperparameters = {
+            'model_type': ['multitask_panns'],
+            'batch_size': [1],
+            'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.02],
+            'window_stride': [0.01],
+            'n_waves': [1],
+            'epoch_rate': [0.05],
+        }
+    else:
+        hyperparameters = {
+            'model_type': ['multitask_panns'],
+            'batch_size': [8],
+            'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.08],
+            'window_stride': [0.02],
+            'n_waves': [1],
+            'epoch_rate': [1.0],
+            'mixup_alpha': [0.0, 0.2, 0.4],
+        }
+
+    main(expt_conf, hyperparameters)
+
+    if expt_conf['expt_id'] == 'debug':
+        import shutil
+        shutil.rmtree('./mlruns')

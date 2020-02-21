@@ -197,6 +197,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
             best_trial_idx = val_results['uar'].argmax()
         else:
             best_trial_idx = val_results['loss'].argmin()
+
         best_pattern = patterns[best_trial_idx]
         for i, param in enumerate(hyperparameters.keys()):
             expt_conf[param] = best_pattern[i]
@@ -243,7 +244,7 @@ if __name__ == '__main__':
             'window_size': [0.101],
             'window_stride': [0.1],
             'n_waves': [1],
-            'epoch_rate': [0.2],
+            'epoch_rate': [0.05],
             'mixup_alpha': [0.1],
         }
     else:
