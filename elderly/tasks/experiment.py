@@ -15,25 +15,27 @@ from elderly_dataset import ManifestMultiWaveDataSet
 from joblib import Parallel, delayed
 from librosa.core import load
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
-from ml.tasks.base_experiment import BaseExperimentor, typical_train
-from ml.tasks.base_experiment import base_expt_args
+from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 LABELS2INT = {'L': 0, 'M': 1, 'H': 2}
+AVAILABLE_TARGET = ['valence', 'arousal', 'valence_mean', 'arousal_mean', 'valence_dev', 'arousal_dev']
 
 
 def elderly_expt_args(parser):
     parser = base_expt_args(parser)
     expt_parser = parser.add_argument_group("Elderly Experiment arguments")
-    expt_parser.add_argument('--target', help='Valence or arousal', choices=['valence', 'arousal'], default='valence')
+    expt_parser.add_argument('--target', help='Valence or arousal', default='valence', choices=AVAILABLE_TARGET)
     expt_parser.add_argument('--n-waves', help='Number of wave files to make one instance', type=int, default=1)
 
     return parser
 
 
-def set_label_func(target_col):
+def set_label_func(target):
+    col_index = {'valence': 5, 'arousal': 6, 'valence_mean': 8, 'valence_dev': 9, 'arousal_mean': 10, 'arousal_dev': 11}
+    assert set(col_index.keys()) == set(AVAILABLE_TARGET)
     def label_func(row):
-        return row[target_col]
+        return row[col_index[target]]
 
     return label_func
 
@@ -109,7 +111,7 @@ def get_cv_groups(expt_conf):
     return groups
 
 
-def main(expt_conf, hyperparameters):
+def main(expt_conf, hyperparameters, typical_train_func):
     if expt_conf['expt_id'] == 'timestamp':
         expt_conf['expt_id'] = dt.today().strftime('%Y-%m-%d_%H:%M')
 
@@ -128,9 +130,8 @@ def main(expt_conf, hyperparameters):
         val_metrics = ['loss']
     expt_conf['sample_rate'] = 16000
 
-    target_col = 5 if expt_conf['target'] == 'valence' else 6
-    label_func = set_label_func(target_col)
     dataset_cls = ManifestMultiWaveDataSet
+    label_func = set_label_func(expt_conf['target'])
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
@@ -158,7 +159,7 @@ def main(expt_conf, hyperparameters):
 
         with mlflow.start_run():
             mlflow.set_tag('target', expt_conf['target'])
-            result_series, val_pred = typical_train(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
+            result_series, val_pred = typical_train_func(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
 
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_artifacts(expt_dir)
@@ -190,7 +191,10 @@ def main(expt_conf, hyperparameters):
 
     # Train with train + devel dataset
     if expt_conf['train_with_all']:
-        best_trial_idx = val_results['uar'].argmax()
+        if expt_conf['task_type'] == 'classify':
+            best_trial_idx = val_results['uar'].argmax()
+        else:
+            best_trial_idx = val_results['loss'].argmin()
         best_pattern = patterns[best_trial_idx]
         for i, param in enumerate(hyperparameters.keys()):
             expt_conf[param] = best_pattern[i]
@@ -209,7 +213,10 @@ def main(expt_conf, hyperparameters):
         else:
             sub_df = manifest_df[manifest_df['partition'] == 'test'][['filename_text']]
 
-        sub_df[expt_conf['target']] = pd.Series(pred).apply(lambda x: list(LABELS2INT.keys())[x])
+        if expt_conf['task_type'] == 'classify':
+            sub_df[expt_conf['target']] = pd.Series(pred).apply(lambda x: list(LABELS2INT.keys())[x])
+        else:
+            sub_df[expt_conf['target']] = pred
         sub_df.to_csv(expt_dir / sub_name, index=False)
         print(f"Submission file is saved in {expt_dir / sub_name}")
 
@@ -223,10 +230,9 @@ if __name__ == '__main__':
     console.setLevel(logging.DEBUG)
     logging.getLogger("ml").addHandler(console)
 
-    if expt_conf['expt_id'] == 'debug':
+    if 'debug' in expt_conf['expt_id']:
         hyperparameters = {
-            'target': ['valence', 'arousal'],
-            'batch_size': [2],
+            'batch_size': [1],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.02],
@@ -237,7 +243,6 @@ if __name__ == '__main__':
         }
     else:
         hyperparameters = {
-            'target': ['valence', 'arousal'],
             'batch_size': [8],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
@@ -248,7 +253,7 @@ if __name__ == '__main__':
             'mixup_alpha': [0.0, 0.2, 0.4],
         }
 
-    main(expt_conf, hyperparameters)
+    main(expt_conf, hyperparameters, typical_train)
 
     if expt_conf['expt_id'] == 'debug':
         import shutil
