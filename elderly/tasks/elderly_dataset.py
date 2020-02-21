@@ -8,6 +8,7 @@ class ManifestMultiWaveDataSet(ManifestWaveDataSet):
     def __init__(self, manifest_path, data_conf, load_func=None, process_func=None, label_func=None, phase='train'):
         super(ManifestMultiWaveDataSet, self).__init__(manifest_path, data_conf, load_func, process_func, label_func, phase)
         self.n_waves = data_conf['n_waves']
+        self.shuffle_order = data_conf['shuffle_order']
         self._concat_paths()
 
     def _concat_paths(self) -> None:
@@ -39,8 +40,12 @@ class ManifestMultiWaveDataSet(ManifestWaveDataSet):
                     shifted = one_script_df.iloc[:, 0].shift(-1 * i_shift)
                     wav_df[i_shift] = shifted
                 wav_df = wav_df.dropna(how='any', axis=0)
-                for combination in itertools.permutations(list(range(self.n_waves))):
-                    wav_df = wav_df.loc[:, list(combination)].rename(columns={c: i for i, c in enumerate(combination)})
+                if self.shuffle_order:
+                    for combination in itertools.permutations(list(range(self.n_waves))):
+                        wav_df = wav_df.loc[:, list(combination)].rename(columns={c: i for i, c in enumerate(combination)})
+                        master_list.append(wav_df)
+                        label_list.extend(list(one_script_df.iloc[self.n_waves - 1:, :].apply(self.label_func, axis=1)))
+                else:
                     master_list.append(wav_df)
                     label_list.extend(list(one_script_df.iloc[self.n_waves - 1:, :].apply(self.label_func, axis=1)))
             master_df = pd.concat(master_list, axis=0).reset_index(drop=True)

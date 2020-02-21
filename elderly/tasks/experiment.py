@@ -27,6 +27,8 @@ def elderly_expt_args(parser):
     expt_parser = parser.add_argument_group("Elderly Experiment arguments")
     expt_parser.add_argument('--target', help='Valence or arousal', default='valence', choices=AVAILABLE_TARGET)
     expt_parser.add_argument('--n-waves', help='Number of wave files to make one instance', type=int, default=1)
+    expt_parser.add_argument('--shuffle-order', action='store_true', default=False,
+                             help='Shuffle wave orders on multiple waves or not')
 
     return parser
 
@@ -230,13 +232,16 @@ if __name__ == '__main__':
     console.setLevel(logging.DEBUG)
     logging.getLogger("ml").addHandler(console)
 
+    if expt_conf['target'] not in ['arousal', 'valence']:
+        expt_conf['task_type'] = 'regress'
+
     if 'debug' in expt_conf['expt_id']:
         hyperparameters = {
             'batch_size': [1],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.02],
-            'window_stride': [0.01],
+            'window_size': [0.101],
+            'window_stride': [0.1],
             'n_waves': [1],
             'epoch_rate': [0.2],
             'mixup_alpha': [0.1],
