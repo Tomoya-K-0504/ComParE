@@ -251,6 +251,7 @@ if __name__ == '__main__':
             'n_waves': [1],
             'epoch_rate': [0.05],
             'mixup_alpha': [0.1],
+            'sample_balance': [[1.0, 1.0, 1.0]],
         }
     else:
         hyperparameters = {
@@ -262,6 +263,7 @@ if __name__ == '__main__':
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0, 0.2, 0.4],
+            'sample_balance': [[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [1.0, 2.0, 1.0]],
         }
 
     main(expt_conf, hyperparameters, typical_train)

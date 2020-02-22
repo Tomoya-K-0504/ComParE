@@ -24,6 +24,7 @@ def elderly_expt_args(parser):
     parser = base_expt_args(parser)
     expt_parser = parser.add_argument_group("Elderly Experiment arguments")
     expt_parser.add_argument('--target', help='Valence or arousal', default='valence,arousal', type=type_float_list)
+    expt_parser.add_argument('--parallel', help='Parallel hyperparameter execution', action='store_true')
     expt_parser.add_argument('--n-waves', help='Number of wave files to make one instance', type=int, default=1)
     expt_parser.add_argument('--shuffle-order', action='store_true', default=False,
                              help='Shuffle wave orders on multiple waves or not')
@@ -98,14 +99,13 @@ def main(expt_conf, hyperparameters):
 
         return result_series, val_pred
 
-    # For debugging
-    if expt_conf['n_jobs'] == 1:
-        result_pred_list = [experiment(pattern, deepcopy(expt_conf)) for pattern in patterns]
-    else:
+    if expt_conf['parallel']:
         n_jobs = expt_conf['n_jobs']
         expt_conf['n_jobs'] = 0
         result_pred_list = Parallel(n_jobs=n_jobs, verbose=0)(
             [delayed(experiment)(pattern, deepcopy(expt_conf)) for pattern in patterns])
+    else:
+        result_pred_list = [experiment(pattern, deepcopy(expt_conf)) for pattern in patterns]
 
     val_results.iloc[:, :len(hyperparameters)] = patterns
     result_list = [result for result, pred in result_pred_list]
@@ -183,13 +183,13 @@ if __name__ == '__main__':
     else:
         hyperparameters = {
             'model_type': ['multitask_panns'],
-            'batch_size': [8],
+            'batch_size': [32],
             'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.08],
             'window_stride': [0.02],
             'n_waves': [1],
             'epoch_rate': [1.0],
-            'mixup_alpha': [0.0, 0.2, 0.4],
+            'mixup_alpha': [0.0],
         }
 
     main(expt_conf, hyperparameters)
