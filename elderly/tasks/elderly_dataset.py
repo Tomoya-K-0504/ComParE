@@ -1,5 +1,6 @@
 import itertools
 
+import numpy as np
 import pandas as pd
 from ml.src.dataset import ManifestWaveDataSet
 
@@ -10,6 +11,10 @@ class ManifestMultiWaveDataSet(ManifestWaveDataSet):
         self.n_waves = data_conf['n_waves']
         self.shuffle_order = data_conf['shuffle_order']
         self._concat_paths()
+        # For debug
+        if data_conf['train_manager'] == 'multitask' and 'debug' in data_conf['expt_id'] and phase == 'train':
+            self.path_df = self.path_df.sample(n=10)
+            self.labels = list(np.array(self.labels)[self.path_df.index])
 
     def _concat_paths(self) -> None:
         if self.n_waves == 1:

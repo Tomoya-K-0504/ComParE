@@ -1,6 +1,5 @@
 import argparse
 import itertools
-import json
 import logging
 import pprint
 from copy import deepcopy
@@ -11,9 +10,9 @@ from typing import List
 import mlflow
 import numpy as np
 import pandas as pd
-from experiment import LABELS2INT, set_load_func, set_data_paths, get_cv_groups
+from elderly_dataset import ManifestMultiWaveDataSet
+from experiment import LABELS2INT, set_load_func, set_data_paths, get_cv_groups, dump_dict
 from joblib import Parallel, delayed
-from ml.src.dataset import ManifestWaveDataSet
 from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args
 
 
@@ -25,6 +24,9 @@ def elderly_expt_args(parser):
     parser = base_expt_args(parser)
     expt_parser = parser.add_argument_group("Elderly Experiment arguments")
     expt_parser.add_argument('--target', help='Valence or arousal', default='valence,arousal', type=type_float_list)
+    expt_parser.add_argument('--n-waves', help='Number of wave files to make one instance', type=int, default=1)
+    expt_parser.add_argument('--shuffle-order', action='store_true', default=False,
+                             help='Shuffle wave orders on multiple waves or not')
 
     return parser
 
@@ -60,7 +62,7 @@ def main(expt_conf, hyperparameters):
         val_metrics_columns = ['target_1_loss', 'target_2_loss']
     expt_conf['sample_rate'] = 16000
 
-    dataset_cls = ManifestWaveDataSet
+    dataset_cls = ManifestMultiWaveDataSet
     label_func = set_label_func(expt_conf['target'])
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
@@ -91,7 +93,7 @@ def main(expt_conf, hyperparameters):
             mlflow.set_tag('target', expt_conf['target'])
             result_series, val_pred = typical_train(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
 
-            mlflow.log_metrics({metric_name: value for metric_name, value in zip(val_metrics_columns, result_series)})
+            mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_artifacts(expt_dir)
 
         return result_series, val_pred
@@ -116,8 +118,7 @@ def main(expt_conf, hyperparameters):
     for (_, pred), pattern in zip(result_pred_list, patterns):
         pattern_name = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
         pd.DataFrame(pred).to_csv(expt_dir / f'{pattern_name}_val_pred.csv', index=False)
-        with open(expt_dir / f'{pattern_name}.txt', 'w') as f:
-            json.dump(expt_conf, f, indent=4)
+        dump_dict(expt_dir / f'{pattern_name}.txt', expt_conf)
 
     # Train with train + devel dataset
     if expt_conf['train_with_all']:
@@ -129,6 +130,7 @@ def main(expt_conf, hyperparameters):
         best_pattern = patterns[best_trial_idx]
         for i, param in enumerate(hyperparameters.keys()):
             expt_conf[param] = best_pattern[i]
+        dump_dict(expt_dir / 'best_parameters.txt', {p: v for p, v in zip(hyperparameters.keys(), best_pattern)})
 
         expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.pth")
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
@@ -167,10 +169,11 @@ if __name__ == '__main__':
     if 'valence' not in expt_conf['target'] or 'arousal' not in expt_conf['target']:
         expt_conf['task_type'] = 'regress'
 
-    if expt_conf['expt_id'] == 'debug':
+    if 'debug' in expt_conf['expt_id']:
+    # if True:
         hyperparameters = {
             'model_type': ['multitask_panns'],
-            'batch_size': [1],
+            'batch_size': [3],
             'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.02],
             'window_stride': [0.01],

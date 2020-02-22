@@ -113,6 +113,11 @@ def get_cv_groups(expt_conf):
     return groups
 
 
+def dump_dict(path, dict_):
+    with open(path, 'w') as f:
+        json.dump(dict_, f, indent=4)
+
+
 def main(expt_conf, hyperparameters, typical_train_func):
     if expt_conf['expt_id'] == 'timestamp':
         expt_conf['expt_id'] = dt.today().strftime('%Y-%m-%d_%H:%M')
@@ -188,8 +193,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
     for (_, pred), pattern in zip(result_pred_list, patterns):
         pattern_name = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
         pd.DataFrame(pred).to_csv(expt_dir / f'{pattern_name}_val_pred.csv', index=False)
-        with open(expt_dir / f'{pattern_name}.txt', 'w') as f:
-            json.dump(expt_conf, f, indent=4)
+        dump_dict(expt_dir / f'{pattern_name}.txt', expt_conf)
 
     # Train with train + devel dataset
     if expt_conf['train_with_all']:
@@ -201,6 +205,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         best_pattern = patterns[best_trial_idx]
         for i, param in enumerate(hyperparameters.keys()):
             expt_conf[param] = best_pattern[i]
+        dump_dict(expt_dir / 'best_parameters.txt', {p: v for p, v in zip(hyperparameters.keys(), best_pattern)})
 
         expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.pth")
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
