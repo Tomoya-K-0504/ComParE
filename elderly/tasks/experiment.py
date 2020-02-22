@@ -262,8 +262,8 @@ if __name__ == '__main__':
             'window_stride': [0.02],
             'n_waves': [1],
             'epoch_rate': [1.0],
-            'mixup_alpha': [0.0, 0.2, 0.4],
-            'sample_balance': [[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [1.0, 2.0, 1.0]],
+            'mixup_alpha': [0.0],
+            'sample_balance': ['same'],
         }
 
     main(expt_conf, hyperparameters, typical_train)
