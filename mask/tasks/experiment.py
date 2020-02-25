@@ -1,4 +1,3 @@
-import json
 import argparse
 import itertools
 import json
@@ -14,8 +13,8 @@ import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 from librosa.core import load
-from mask_dataset import ManifestMultiWaveDataSet
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
+from ml.src.dataset import ManifestWaveDataSet
 from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
@@ -104,7 +103,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
     expt_conf['sample_rate'] = 16000
 
-    dataset_cls = ManifestMultiWaveDataSet
+    dataset_cls = ManifestWaveDataSet
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
@@ -192,7 +191,7 @@ if __name__ == '__main__':
 
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("[%(name)s] [%(levelname)s] %(message)s"))
-    console.setLevel(logging.INFO)
+    console.setLevel(logging.DEBUG)
     logging.getLogger("ml").addHandler(console)
 
     if 'debug' in expt_conf['expt_id']:
@@ -200,12 +199,14 @@ if __name__ == '__main__':
             'batch_size': [1],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.2],
-            'window_stride': [0.02],
+            'window_size': [0.01],
+            'window_stride': [0.002],
             'n_waves': [1],
             'epoch_rate': [0.05],
             'mixup_alpha': [0.1],
             'sample_balance': ['same'],
+            'time_drop_rate': [0.0],
+            'freq_drop_rate': [0.0],
         }
     else:
         hyperparameters = {
@@ -218,6 +219,8 @@ if __name__ == '__main__':
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0],
             'sample_balance': ['same'],
+            'time_drop_rate': [0.0],
+            'freq_drop_rate': [0.0],
         }
 
     main(expt_conf, hyperparameters, typical_train)
