@@ -22,8 +22,13 @@ if __name__ == '__main__':
             'window_size': [0.02],
             'window_stride': [0.01],
             'n_waves': [1],
-            'epoch_rate': [0.2],
+            'epoch_rate': [0.05],
             'mixup_alpha': [0.1],
+            'time_drop_rate': [0.0],
+            'freq_drop_rate': [0.0],
+            'adda_epochs': [3],
+            'k_disc': [1],
+            'k_clf': [1],
         }
     else:
         hyperparameters = {
@@ -36,6 +41,11 @@ if __name__ == '__main__':
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0, 0.2, 0.4],
+            'time_drop_rate': [0.0],
+            'freq_drop_rate': [0.0],
+            'adda_epochs': [3],
+            'k_disc': [1],
+            'k_clf': [1],
         }
 
     main(expt_conf, hyperparameters, typical_adda_train)
