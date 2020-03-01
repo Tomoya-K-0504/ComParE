@@ -196,7 +196,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         dump_dict(expt_dir / f'{pattern_name}.txt', expt_conf)
 
     # Train with train + devel dataset
-    if expt_conf['train_with_all']:
+    if expt_conf['infer']:
         if expt_conf['task_type'] == 'classify':
             best_trial_idx = val_results['uar'].argmax()
         else:
@@ -269,6 +269,13 @@ if __name__ == '__main__':
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
+        # if expt_conf['target'] == 'arousal':
+        #     hyperparameters['window_size'] = 0.08,
+        #     hyperparameters['window_stride'] = 0.02
+        # elif expt_conf['target'] == 'valence':
+        #     hyperparameters['window_size'] = 0.08,
+        #     hyperparameters['window_stride'] = 0.02
+
 
     main(expt_conf, hyperparameters, typical_train)
 
