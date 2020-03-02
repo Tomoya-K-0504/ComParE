@@ -1,5 +1,4 @@
 import argparse
-import argparse
 import itertools
 import logging
 import pprint
@@ -168,13 +167,12 @@ if __name__ == '__main__':
 
     if 'debug' in expt_conf['expt_id']:
         hyperparameters = {
-            'C': [0.0001, 0.001, 0.01, 0.1, 1.0],
-            'sample_balance': [None],
+            # 'C': [0.01, 0.1, 1.0],
+            'nn_hidden_nodes': [[10], [50], [50, 50], [100, 100], [100, 50], [100, 100, 100], [100, 300, 100]],
         }
     else:
         hyperparameters = {
-            'C': [0.0001, 0.001, 0.01, 0.1, 1.0],
-            'sample_balance': [None],
+            'C': [0.01, 0.1, 1.0],
         }
 
     main(expt_conf, hyperparameters, typical_train)

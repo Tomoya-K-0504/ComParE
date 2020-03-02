@@ -260,22 +260,15 @@ if __name__ == '__main__':
             'batch_size': [8],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.08],
-            'window_stride': [0.02],
+            'window_size': [0.05],
+            'window_stride': [0.01],
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0],
-            'sample_balance': ['same'],
+            'sample_balance': [None],
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
-        # if expt_conf['target'] == 'arousal':
-        #     hyperparameters['window_size'] = 0.08,
-        #     hyperparameters['window_stride'] = 0.02
-        # elif expt_conf['target'] == 'valence':
-        #     hyperparameters['window_size'] = 0.08,
-        #     hyperparameters['window_stride'] = 0.02
-
 
     main(expt_conf, hyperparameters, typical_train)
 
