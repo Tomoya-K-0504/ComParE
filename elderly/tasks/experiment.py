@@ -15,7 +15,7 @@ from elderly_dataset import ManifestMultiWaveDataSet
 from joblib import Parallel, delayed
 from librosa.core import load
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
-from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args
+from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args, get_metric_list
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 LABELS2INT = {'L': 0, 'M': 1, 'H': 2}
@@ -29,6 +29,7 @@ def elderly_expt_args(parser):
     expt_parser.add_argument('--n-waves', help='Number of wave files to make one instance', type=int, default=1)
     expt_parser.add_argument('--shuffle-order', action='store_true', default=False,
                              help='Shuffle wave orders on multiple waves or not')
+    expt_parser.add_argument('--n-parallel', default=1, type=int)
 
     return parser
 
@@ -131,10 +132,10 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
     if expt_conf['task_type'] == 'classify':
         expt_conf['class_names'] = [0, 1, 2]
-        val_metrics = ['loss', 'uar']
+        metrics_names = {'train': ['loss', 'uar'], 'val': ['loss', 'uar'], 'infer': []}
     else:
         expt_conf['class_names'] = [0]
-        val_metrics = ['loss']
+        metrics_names = {'train': ['loss'], 'val': ['loss'], 'test': ['loss']}
     expt_conf['sample_rate'] = 16000
 
     dataset_cls = ManifestMultiWaveDataSet
@@ -145,8 +146,8 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
     patterns = list(itertools.product(*hyperparameters.values()))
     # patterns = [(w_size, w_stride) for w_size, w_stride in patterns if w_size > w_stride]
-    val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(val_metrics))),
-                               columns=list(hyperparameters.keys()) + val_metrics)
+    val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(metrics_names['val']))),
+                               columns=list(hyperparameters.keys()) + metrics_names['val'])
 
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(hyperparameters)
@@ -166,7 +167,8 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
         with mlflow.start_run():
             mlflow.set_tag('target', expt_conf['target'])
-            result_series, val_pred = typical_train_func(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
+            result_series, val_pred = typical_train_func(expt_conf, load_func, label_func, process_func=None,
+                                                         dataset_cls=dataset_cls, groups=groups)
 
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_artifacts(expt_dir)
@@ -174,14 +176,14 @@ def main(expt_conf, hyperparameters, typical_train_func):
         return result_series, val_pred
 
     # For debugging
-    if expt_conf['n_jobs'] == 1:
+    if expt_conf['n_parallel'] == 1:
         result_pred_list = [experiment(pattern, deepcopy(expt_conf)) for pattern in patterns]
     else:
-        n_jobs = expt_conf['n_jobs']
         expt_conf['n_jobs'] = 0
-        result_pred_list = Parallel(n_jobs=n_jobs, verbose=0)(
+        result_pred_list = Parallel(n_jobs=expt_conf['n_parallel'], verbose=0)(
             [delayed(experiment)(pattern, deepcopy(expt_conf)) for pattern in patterns])
 
+    # TODO hyperparameterにListが入ったときの対応
     val_results.iloc[:, :len(hyperparameters)] = patterns
     result_list = [result for result, pred in result_pred_list]
     val_results.iloc[:, len(hyperparameters):] = result_list
@@ -196,6 +198,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         dump_dict(expt_dir / f'{pattern_name}.txt', expt_conf)
 
     # Train with train + devel dataset
+    phases = ['train', 'infer']
     if expt_conf['infer']:
         if expt_conf['task_type'] == 'classify':
             best_trial_idx = val_results['uar'].argmax()
@@ -211,9 +214,10 @@ def main(expt_conf, hyperparameters, typical_train_func):
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
         load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
-        experimentor = BaseExperimentor(expt_conf, load_func, label_func, dataset_cls)
+        experimentor = BaseExperimentor(expt_conf, load_func, label_func, process_func=None, dataset_cls=dataset_cls)
 
-        pred = experimentor.experiment_without_validation(seed_average=expt_conf['n_seed_average'])
+        metrics = {p: get_metric_list(metrics_names[p]) for p in phases}
+        pred = experimentor.experiment_without_validation(metrics, seed_average=expt_conf['n_seed_average'])
 
         sub_name = f"sub_{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.csv"
         if (expt_dir / sub_name).is_file():
@@ -251,7 +255,7 @@ if __name__ == '__main__':
             'n_waves': [1],
             'epoch_rate': [0.05],
             'mixup_alpha': [0.1],
-            'sample_balance': [[1.0, 1.0, 1.0]],
+            'sample_balance': ['same'],
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
