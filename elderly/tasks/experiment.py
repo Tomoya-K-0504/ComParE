@@ -239,7 +239,7 @@ if __name__ == '__main__':
 
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("[%(name)s] [%(levelname)s] %(message)s"))
-    console.setLevel(logging.DEBUG)
+    console.setLevel(logging.INFO)
     logging.getLogger("ml").addHandler(console)
 
     if expt_conf['target'] not in ['arousal', 'valence']:
@@ -247,6 +247,7 @@ if __name__ == '__main__':
 
     if 'debug' in expt_conf['expt_id']:
         hyperparameters = {
+            'lr': [1e-4],
             'batch_size': [1],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
@@ -255,12 +256,13 @@ if __name__ == '__main__':
             'n_waves': [1],
             'epoch_rate': [0.05],
             'mixup_alpha': [0.1],
-            'sample_balance': ['same'],
+            # 'sample_balance': [[1.0, 1.0, 1.0]],
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
     else:
         hyperparameters = {
+            'lr': [1e-4],
             'batch_size': [8],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
