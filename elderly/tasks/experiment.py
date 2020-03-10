@@ -145,7 +145,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
 
     patterns = list(itertools.product(*hyperparameters.values()))
-    # patterns = [(w_size, w_stride) for w_size, w_stride in patterns if w_size > w_stride]
+    patterns = [pattern for pattern in patterns if pattern[4] > pattern[5]]
     val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(metrics_names['val']))),
                                columns=list(hyperparameters.keys()) + metrics_names['val'])
 
@@ -223,7 +223,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         if (expt_dir / sub_name).is_file():
             sub_df = pd.read_csv(expt_dir / sub_name)
         else:
-            sub_df = manifest_df[manifest_df['partition'] == 'test'][['filename_text']]
+            sub_df = manifest_df[manifest_df['partition'] == 'test'][['filename_text']].reset_index(drop=True)
 
         if expt_conf['task_type'] == 'classify':
             sub_df[expt_conf['target']] = pd.Series(pred).apply(lambda x: list(LABELS2INT.keys())[x])
@@ -256,18 +256,18 @@ if __name__ == '__main__':
             'n_waves': [1],
             'epoch_rate': [0.05],
             'mixup_alpha': [0.1],
-            # 'sample_balance': [[1.0, 1.0, 1.0]],
+            'sample_balance': [[1.0, 1.0, 1.0]],
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
     else:
         hyperparameters = {
             'lr': [1e-4],
-            'batch_size': [8],
+            'batch_size': [16],
             'model_type': ['panns'],
             'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.05],
-            'window_stride': [0.01],
+            'window_size': [0.05, 0.02, 0.01],
+            'window_stride': [0.01, 0.005, 0.002],
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0],
@@ -275,6 +275,10 @@ if __name__ == '__main__':
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
+    if expt_conf['target'] == 'valence':
+        hyperparameters['sample_balance'] = [[1, 1, 1]]
+    else:
+        hyperparameters['sample_balance'] = ['same']
 
     main(expt_conf, hyperparameters, typical_train)
 
