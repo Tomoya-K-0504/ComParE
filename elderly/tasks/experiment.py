@@ -251,7 +251,7 @@ if __name__ == '__main__':
 
     if 'debug' in expt_conf['expt_id']:
         hyperparameters = {
-            'lr': [1e-4],
+            'lr': [1e-3],
             'batch_size': [1],
             'model_type': ['logmel_cnn'],
             'transform': ['logmel'],
@@ -267,13 +267,13 @@ if __name__ == '__main__':
         }
     else:
         hyperparameters = {
-            'lr': [1e-4],
+            'lr': [1e-3, 1e-4],
             'batch_size': [16],
             'model_type': ['logmel_cnn'],
             'transform': ['logmel'],
             #'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.05, 0.02, 0.01],
-            'window_stride': [0.01, 0.005, 0.002],
+            'window_size': [0.05],
+            'window_stride': [0.01],
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0],
@@ -297,7 +297,8 @@ if __name__ == '__main__':
         shutil.rmtree('./mlruns')
     else:
         cfg = dict(
-            body='Finished experiments: https://www.notion.so/c2fad3ade9d941588335cb56eafaf27a',
+            body=f"Finished experiment {expt_conf['expt_id']}: \n" +
+                 "Notion ticket: https://www.notion.so/c2fad3ade9d941588335cb56eafaf27a",
             webhook_url='https://hooks.slack.com/services/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'
         )
         notify_slack(cfg)
