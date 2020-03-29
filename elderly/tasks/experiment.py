@@ -17,6 +17,7 @@ from librosa.core import load
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
 from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args, get_metric_list
 from ml.utils.notify_slack import notify_slack
+from smoothing import smoothing
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 LABELS2INT = {'L': 0, 'M': 1, 'H': 2}
@@ -31,6 +32,7 @@ def elderly_expt_args(parser):
     expt_parser.add_argument('--shuffle-order', action='store_true', default=False,
                              help='Shuffle wave orders on multiple waves or not')
     expt_parser.add_argument('--n-parallel', default=1, type=int)
+    expt_parser.add_argument('--smoothing', default='majority', choices=['majority'])
 
     return parser
 
@@ -217,7 +219,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         experimentor = BaseExperimentor(expt_conf, load_func, label_func, process_func=None, dataset_cls=dataset_cls)
 
         metrics = {p: get_metric_list(metrics_names[p]) for p in phases}
-        pred = experimentor.experiment_without_validation(metrics, seed_average=expt_conf['n_seed_average'])
+        _, pred = experimentor.experiment_without_validation(metrics, seed_average=expt_conf['n_seed_average'])
 
         sub_name = f"sub_{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.csv"
         if (expt_dir / sub_name).is_file():
@@ -229,6 +231,8 @@ def main(expt_conf, hyperparameters, typical_train_func):
             sub_df[expt_conf['target']] = pd.Series(pred['infer']).apply(lambda x: list(LABELS2INT.keys())[x])
         else:
             sub_df[expt_conf['target']] = pred['infer']
+
+        sub_df = smoothing(sub_df, expt_conf['target'], expt_conf['smoothing'])
         sub_df.to_csv(expt_dir / sub_name, index=False)
         print(f"Submission file is saved in {expt_dir / sub_name}")
 
@@ -239,7 +243,7 @@ if __name__ == '__main__':
 
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("[%(name)s] [%(levelname)s] %(message)s"))
-    console.setLevel(logging.INFO)
+    console.setLevel(logging.DEBUG)
     logging.getLogger("ml").addHandler(console)
 
     if expt_conf['target'] not in ['arousal', 'valence']:
@@ -265,8 +269,9 @@ if __name__ == '__main__':
         hyperparameters = {
             'lr': [1e-4],
             'batch_size': [16],
-            'model_type': ['panns'],
-            'checkpoint_path': ['../cnn14.pth'],
+            'model_type': ['logmel_cnn'],
+            'transform': ['logmel'],
+            #'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.05, 0.02, 0.01],
             'window_stride': [0.01, 0.005, 0.002],
             'n_waves': [1],
@@ -287,12 +292,12 @@ if __name__ == '__main__':
 
     main(expt_conf, hyperparameters, typical_train)
 
-    cfg = dict(
-        body='https://www.notion.so/c2fad3ade9d941588335cb56eafaf27a',
-        webhook_url='https://hooks.slack.com/services/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'
-    )
-    notify_slack(cfg)
-
     if expt_conf['expt_id'] == 'debug':
         import shutil
         shutil.rmtree('./mlruns')
+    else:
+        cfg = dict(
+            body='Finished experiments: https://www.notion.so/c2fad3ade9d941588335cb56eafaf27a',
+            webhook_url='https://hooks.slack.com/services/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'
+        )
+        notify_slack(cfg)
