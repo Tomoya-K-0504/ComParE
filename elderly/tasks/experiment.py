@@ -16,6 +16,7 @@ from joblib import Parallel, delayed
 from librosa.core import load
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
 from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args, get_metric_list
+from ml.utils.notify_slack import notify_slack
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 LABELS2INT = {'L': 0, 'M': 1, 'H': 2}
@@ -145,7 +146,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
 
     patterns = list(itertools.product(*hyperparameters.values()))
-    patterns = [pattern for pattern in patterns if pattern[4] > pattern[5]]
+    # patterns = [pattern for pattern in patterns if pattern[4] > pattern[5]]
     val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(metrics_names['val']))),
                                columns=list(hyperparameters.keys()) + metrics_names['val'])
 
@@ -167,7 +168,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
         with mlflow.start_run():
             mlflow.set_tag('target', expt_conf['target'])
-            result_series, val_pred = typical_train_func(expt_conf, load_func, label_func, process_func=None,
+            result_series, val_pred, _ = typical_train_func(expt_conf, load_func, label_func, process_func=None,
                                                          dataset_cls=dataset_cls, groups=groups)
 
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
@@ -183,8 +184,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         result_pred_list = Parallel(n_jobs=expt_conf['n_parallel'], verbose=0)(
             [delayed(experiment)(pattern, deepcopy(expt_conf)) for pattern in patterns])
 
-    # TODO hyperparameterにListが入ったときの対応
-    val_results.iloc[:, :len(hyperparameters)] = patterns
+    val_results.iloc[:, :len(hyperparameters)] = [[str(param) for param in p] for p in patterns]
     result_list = [result for result, pred in result_pred_list]
     val_results.iloc[:, len(hyperparameters):] = result_list
     pp.pprint(val_results)
@@ -226,9 +226,9 @@ def main(expt_conf, hyperparameters, typical_train_func):
             sub_df = manifest_df[manifest_df['partition'] == 'test'][['filename_text']].reset_index(drop=True)
 
         if expt_conf['task_type'] == 'classify':
-            sub_df[expt_conf['target']] = pd.Series(pred).apply(lambda x: list(LABELS2INT.keys())[x])
+            sub_df[expt_conf['target']] = pd.Series(pred['infer']).apply(lambda x: list(LABELS2INT.keys())[x])
         else:
-            sub_df[expt_conf['target']] = pred
+            sub_df[expt_conf['target']] = pred['infer']
         sub_df.to_csv(expt_dir / sub_name, index=False)
         print(f"Submission file is saved in {expt_dir / sub_name}")
 
@@ -249,13 +249,14 @@ if __name__ == '__main__':
         hyperparameters = {
             'lr': [1e-4],
             'batch_size': [1],
-            'model_type': ['panns'],
-            'checkpoint_path': ['../cnn14.pth'],
+            'model_type': ['logmel_cnn'],
+            'transform': ['logmel'],
+            # 'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.101],
             'window_stride': [0.1],
             'n_waves': [1],
             'epoch_rate': [0.05],
-            'mixup_alpha': [0.1],
+            'mixup_alpha': [0.0],
             'sample_balance': [[1.0, 1.0, 1.0]],
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
@@ -281,6 +282,12 @@ if __name__ == '__main__':
         hyperparameters['sample_balance'] = ['same']
 
     main(expt_conf, hyperparameters, typical_train)
+
+    cfg = dict(
+        body='https://www.notion.so/c2fad3ade9d941588335cb56eafaf27a',
+        webhook_url='https://hooks.slack.com/services/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'
+    )
+    notify_slack(cfg)
 
     if expt_conf['expt_id'] == 'debug':
         import shutil
