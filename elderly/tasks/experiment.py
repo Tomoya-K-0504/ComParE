@@ -278,8 +278,12 @@ if __name__ == '__main__':
         }
     if expt_conf['target'] == 'valence':
         hyperparameters['sample_balance'] = [[1, 1, 1]]
+        hyperparameters['window_size'] = [0.01]
+        hyperparameters['window_stride'] = [0.002]
     else:
         hyperparameters['sample_balance'] = ['same']
+        hyperparameters['window_size'] = [0.05]
+        hyperparameters['window_stride'] = [0.005]
 
     main(expt_conf, hyperparameters, typical_train)
 
