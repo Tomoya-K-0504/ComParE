@@ -271,22 +271,25 @@ if __name__ == '__main__':
             'batch_size': [16],
             'model_type': ['logmel_cnn'],
             'transform': ['logmel'],
+            'kl_penalty': [0.0, 0.01, 0.2],
+            'entropy_penalty': [0.0, 0.01, 0.2],
+            'loss_func': ['ce'],
             #'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.05],
             'window_stride': [0.01],
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0],
-            'sample_balance': [None],
+            'sample_balance': ['same'],
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
     if expt_conf['target'] == 'valence':
-        hyperparameters['sample_balance'] = [[1, 1, 1]]
+        # hyperparameters['sample_balance'] = [[1, 1, 1]]
         hyperparameters['window_size'] = [0.01]
         hyperparameters['window_stride'] = [0.002]
     else:
-        hyperparameters['sample_balance'] = ['same']
+        # hyperparameters['sample_balance'] = ['same']
         hyperparameters['window_size'] = [0.05]
         hyperparameters['window_stride'] = [0.005]
 

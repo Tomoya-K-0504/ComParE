@@ -15,7 +15,8 @@ from joblib import Parallel, delayed
 from librosa.core import load
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
 from ml.src.dataset import ManifestWaveDataSet
-from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args
+from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args, get_metric_list
+from ml.utils.notify_slack import notify_slack
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 LABEL2INT = {'clear': 0, 'mask': 1, '?': -1}
@@ -29,6 +30,7 @@ def mask_expt_args(parser):
     expt_parser.add_argument('--n-waves', help='Number of wave files to make one instance', type=int, default=1)
     expt_parser.add_argument('--shuffle-order', action='store_true', default=False,
                              help='Shuffle wave orders on multiple waves or not')
+    expt_parser.add_argument('--n-parallel', default=1, type=int)
 
     return parser
 
@@ -99,6 +101,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
     expt_conf['log_dir'] = str(expt_dir / 'tensorboard')
 
     expt_conf['class_names'] = [0, 1]
+    metrics_names = {'train': ['loss', 'uar'], 'val': ['loss', 'uar'], 'infer': []}
     val_metrics = ['loss', 'uar']
 
     expt_conf['sample_rate'] = 16000
@@ -109,8 +112,8 @@ def main(expt_conf, hyperparameters, typical_train_func):
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
 
     patterns = list(itertools.product(*hyperparameters.values()))
-    val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(val_metrics))),
-                               columns=list(hyperparameters.keys()) + val_metrics)
+    val_results = pd.DataFrame(np.zeros((len(patterns), len(hyperparameters) + len(metrics_names['val']))),
+                               columns=list(hyperparameters.keys()) + metrics_names['val'])
 
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(hyperparameters)
@@ -128,7 +131,8 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
         with mlflow.start_run():
             mlflow.set_tag('target', expt_conf['target'])
-            result_series, val_pred = typical_train_func(expt_conf, load_func, label_func, dataset_cls, groups, val_metrics)
+            result_series, val_pred, _ = typical_train_func(expt_conf, load_func, label_func, process_func=None,
+                                                            dataset_cls=dataset_cls, groups=groups)
 
             mlflow.log_params({hyperparameter: value for hyperparameter, value in zip(hyperparameters.keys(), pattern)})
             mlflow.log_artifacts(expt_dir)
@@ -136,15 +140,14 @@ def main(expt_conf, hyperparameters, typical_train_func):
         return result_series, val_pred
 
     # For debugging
-    if expt_conf['n_jobs'] == 1:
+    if expt_conf['n_parallel'] == 1:
         result_pred_list = [experiment(pattern, deepcopy(expt_conf)) for pattern in patterns]
     else:
-        n_jobs = expt_conf['n_jobs']
         expt_conf['n_jobs'] = 0
-        result_pred_list = Parallel(n_jobs=n_jobs, verbose=0)(
+        result_pred_list = Parallel(n_jobs=expt_conf['n_parallel'], verbose=0)(
             [delayed(experiment)(pattern, deepcopy(expt_conf)) for pattern in patterns])
 
-    val_results.iloc[:, :len(hyperparameters)] = patterns
+    val_results.iloc[:, :len(hyperparameters)] = [[str(param) for param in p] for p in patterns]
     result_list = [result for result, pred in result_pred_list]
     val_results.iloc[:, len(hyperparameters):] = result_list
     pp.pprint(val_results)
@@ -158,7 +161,8 @@ def main(expt_conf, hyperparameters, typical_train_func):
         dump_dict(expt_dir / f'{pattern_name}.txt', expt_conf)
 
     # Train with train + devel dataset
-    if expt_conf['train_with_all']:
+    phases = ['train', 'infer']
+    if expt_conf['infer']:
         best_trial_idx = val_results['uar'].argmax()
 
         best_pattern = patterns[best_trial_idx]
@@ -170,17 +174,17 @@ def main(expt_conf, hyperparameters, typical_train_func):
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
         load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
-        experimentor = BaseExperimentor(expt_conf, load_func, label_func, dataset_cls)
+        experimentor = BaseExperimentor(expt_conf, load_func, label_func, process_func=None, dataset_cls=dataset_cls)
 
-        pred = experimentor.experiment_without_validation(seed_average=expt_conf['n_seed_average'])
+        metrics = {p: get_metric_list(metrics_names[p]) for p in phases}
+        _, pred = experimentor.experiment_without_validation(metrics, seed_average=expt_conf['n_seed_average'])
 
         sub_name = f"sub_{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.csv"
         if (expt_dir / sub_name).is_file():
             sub_df = pd.read_csv(expt_dir / sub_name)
         else:
-            sub_df = manifest_df[manifest_df['file_name'].str.startswith('test')][['file_name']]
-
-        sub_df[expt_conf['target']] = pd.Series(pred).apply(lambda x: list(LABEL2INT.keys())[x])
+            sub_df = manifest_df[manifest_df['file_name'].str.startswith('test')][['file_name']].reset_index(drop=True)
+        sub_df[expt_conf['target']] = pd.Series(pred['infer']).apply(lambda x: list(LABEL2INT.keys())[x])
         sub_df.to_csv(expt_dir / sub_name, index=False)
         print(f"Submission file is saved in {expt_dir / sub_name}")
 
@@ -196,25 +200,32 @@ if __name__ == '__main__':
 
     if 'debug' in expt_conf['expt_id']:
         hyperparameters = {
+            'lr': [1e-3],
             'batch_size': [1],
-            'model_type': ['panns'],
-            'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [0.01],
-            'window_stride': [0.002],
+            'model_type': ['logmel_cnn'],
+            'transform': ['logmel'],
+            # 'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.101],
+            'window_stride': [0.1],
             'n_waves': [1],
             'epoch_rate': [0.05],
-            'mixup_alpha': [0.1],
-            'sample_balance': ['same'],
+            'mixup_alpha': [0.0],
+            'sample_balance': [[1.0, 1.0, 1.0]],
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
     else:
         hyperparameters = {
-            'batch_size': [32],
-            'model_type': ['panns'],
-            'checkpoint_path': ['../cnn14.pth'],
-            'window_size': [[0.2, 0.4, 0.6]],
-            'window_stride': [0.005, 0.01, 0.02],
+            'lr': [1e-3, 1e-4],
+            'batch_size': [16],
+            'model_type': ['logmel_cnn'],
+            'transform': ['logmel'],
+            'kl_penalty': [0.0, 0.01, 0.2],
+            'entropy_penalty': [0.0, 0.01, 0.2],
+            'loss_func': ['ce'],
+            # 'checkpoint_path': ['../cnn14.pth'],
+            'window_size': [0.05],
+            'window_stride': [0.01],
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0],
@@ -222,9 +233,25 @@ if __name__ == '__main__':
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
+    if expt_conf['target'] == 'valence':
+        # hyperparameters['sample_balance'] = [[1, 1, 1]]
+        hyperparameters['window_size'] = [0.01]
+        hyperparameters['window_stride'] = [0.002]
+    else:
+        # hyperparameters['sample_balance'] = ['same']
+        hyperparameters['window_size'] = [0.05]
+        hyperparameters['window_stride'] = [0.005]
 
     main(expt_conf, hyperparameters, typical_train)
 
     if expt_conf['expt_id'] == 'debug':
         import shutil
+
         shutil.rmtree('./mlruns')
+    else:
+        cfg = dict(
+            body=f"Finished experiment {expt_conf['expt_id']}: \n" +
+                 "Notion ticket: https://www.notion.so/mask-23037943c2f24e4795a48b6daa573206",
+            webhook_url='https://hooks.slack.com/services/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'
+        )
+        notify_slack(cfg)
