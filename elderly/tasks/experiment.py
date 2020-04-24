@@ -253,7 +253,7 @@ if __name__ == '__main__':
         hyperparameters = {
             'lr': [1e-3],
             'batch_size': [1],
-            'model_type': ['logmel_cnn'],
+            'model_type': ['resnet'],
             'transform': ['logmel'],
             # 'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.101],
@@ -269,7 +269,7 @@ if __name__ == '__main__':
         hyperparameters = {
             'lr': [1e-3, 1e-4],
             'batch_size': [16],
-            'model_type': ['logmel_cnn'],
+            'model_type': ['resnet'],
             'transform': ['logmel'],
             'kl_penalty': [0.0, 0.01, 0.2],
             'entropy_penalty': [0.0, 0.01, 0.2],

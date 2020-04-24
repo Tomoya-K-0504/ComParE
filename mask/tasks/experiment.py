@@ -31,6 +31,7 @@ def mask_expt_args(parser):
     expt_parser.add_argument('--shuffle-order', action='store_true', default=False,
                              help='Shuffle wave orders on multiple waves or not')
     expt_parser.add_argument('--n-parallel', default=1, type=int)
+    expt_parser.add_argument('--only-test', action='store_true')
 
     return parser
 
@@ -102,7 +103,6 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
     expt_conf['class_names'] = [0, 1]
     metrics_names = {'train': ['loss', 'uar'], 'val': ['loss', 'uar'], 'infer': []}
-    val_metrics = ['loss', 'uar']
 
     expt_conf['sample_rate'] = 16000
 
@@ -139,37 +139,39 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
         return result_series, val_pred
 
-    # For debugging
-    if expt_conf['n_parallel'] == 1:
-        result_pred_list = [experiment(pattern, deepcopy(expt_conf)) for pattern in patterns]
+    if expt_conf['only_test']:
+        val_results = pd.read_csv(expt_dir / 'val_results.csv')
     else:
-        expt_conf['n_jobs'] = 0
-        result_pred_list = Parallel(n_jobs=expt_conf['n_parallel'], verbose=0)(
-            [delayed(experiment)(pattern, deepcopy(expt_conf)) for pattern in patterns])
+        # For debugging
+        if expt_conf['n_parallel'] == 1:
+            result_pred_list = [experiment(pattern, deepcopy(expt_conf)) for pattern in patterns]
+        else:
+            expt_conf['n_jobs'] = 0
+            result_pred_list = Parallel(n_jobs=expt_conf['n_parallel'], verbose=0)(
+                [delayed(experiment)(pattern, deepcopy(expt_conf)) for pattern in patterns])
 
-    val_results.iloc[:, :len(hyperparameters)] = [[str(param) for param in p] for p in patterns]
-    result_list = [result for result, pred in result_pred_list]
-    val_results.iloc[:, len(hyperparameters):] = result_list
-    pp.pprint(val_results)
-    pp.pprint(val_results.iloc[:, len(hyperparameters):].describe())
+        val_results.iloc[:, :len(hyperparameters)] = [[str(param) for param in p] for p in patterns]
+        result_list = [result for result, pred in result_pred_list]
+        val_results.iloc[:, len(hyperparameters):] = result_list
+        pp.pprint(val_results)
+        pp.pprint(val_results.iloc[:, len(hyperparameters):].describe())
 
-    val_results.to_csv(expt_dir / 'val_results.csv', index=False)
-    print(f"Devel results saved into {expt_dir / 'val_results.csv'}")
-    for (_, pred), pattern in zip(result_pred_list, patterns):
-        pattern_name = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
-        pd.DataFrame(pred).to_csv(expt_dir / f'{pattern_name}_val_pred.csv', index=False)
-        dump_dict(expt_dir / f'{pattern_name}.txt', expt_conf)
+        val_results.to_csv(expt_dir / 'val_results.csv', index=False)
+        print(f"Devel results saved into {expt_dir / 'val_results.csv'}")
+        for (_, pred), pattern in zip(result_pred_list, patterns):
+            pattern_name = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
+            pd.DataFrame(pred).to_csv(expt_dir / f'{pattern_name}_val_pred.csv', index=False)
+            dump_dict(expt_dir / f'{pattern_name}.txt', expt_conf)
+
+    best_trial_idx = val_results['uar'].argmax()
+    best_pattern = patterns[best_trial_idx]
+    for i, param in enumerate(hyperparameters.keys()):
+        expt_conf[param] = best_pattern[i]
+    dump_dict(expt_dir / 'best_parameters.txt', {p: v for p, v in zip(hyperparameters.keys(), best_pattern)})
 
     # Train with train + devel dataset
     phases = ['train', 'infer']
     if expt_conf['infer']:
-        best_trial_idx = val_results['uar'].argmax()
-
-        best_pattern = patterns[best_trial_idx]
-        for i, param in enumerate(hyperparameters.keys()):
-            expt_conf[param] = best_pattern[i]
-        dump_dict(expt_dir / 'best_parameters.txt', {p: v for p, v in zip(hyperparameters.keys(), best_pattern)})
-
         expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.pth")
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
@@ -178,6 +180,8 @@ def main(expt_conf, hyperparameters, typical_train_func):
 
         metrics = {p: get_metric_list(metrics_names[p]) for p in phases}
         _, pred = experimentor.experiment_without_validation(metrics, seed_average=expt_conf['n_seed_average'])
+        expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in best_pattern])}_all.pth")
+        experimentor.train_manager.model_manager.save_model()
 
         sub_name = f"sub_{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.csv"
         if (expt_dir / sub_name).is_file():
@@ -206,7 +210,7 @@ if __name__ == '__main__':
             'transform': ['logmel'],
             # 'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.101],
-            'window_stride': [0.1],
+            'window_stride': [0.02],
             'n_waves': [1],
             'epoch_rate': [0.05],
             'mixup_alpha': [0.0],
@@ -220,12 +224,12 @@ if __name__ == '__main__':
             'batch_size': [16],
             'model_type': ['logmel_cnn'],
             'transform': ['logmel'],
-            'kl_penalty': [0.0, 0.01, 0.2],
-            'entropy_penalty': [0.0, 0.01, 0.2],
+            'kl_penalty': [0.0],
+            'entropy_penalty': [0.0],
             'loss_func': ['ce'],
             # 'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.05],
-            'window_stride': [0.01],
+            'window_stride': [0.002],
             'n_waves': [1],
             'epoch_rate': [1.0],
             'mixup_alpha': [0.0],
@@ -233,14 +237,6 @@ if __name__ == '__main__':
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
-    if expt_conf['target'] == 'valence':
-        # hyperparameters['sample_balance'] = [[1, 1, 1]]
-        hyperparameters['window_size'] = [0.01]
-        hyperparameters['window_stride'] = [0.002]
-    else:
-        # hyperparameters['sample_balance'] = ['same']
-        hyperparameters['window_size'] = [0.05]
-        hyperparameters['window_stride'] = [0.005]
 
     main(expt_conf, hyperparameters, typical_train)
 
