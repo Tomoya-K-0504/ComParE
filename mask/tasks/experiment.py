@@ -11,12 +11,15 @@ from typing import Dict
 import mlflow
 import numpy as np
 import pandas as pd
+import torch
 from joblib import Parallel, delayed
 from librosa.core import load
+from ml.preprocess.preprocessor import Preprocessor
 from ml.src.dataloader import set_dataloader, set_ml_dataloader
 from ml.src.dataset import ManifestWaveDataSet
 from ml.tasks.base_experiment import BaseExperimentor, typical_train, base_expt_args, get_metric_list
 from ml.utils.notify_slack import notify_slack
+from tqdm import tqdm
 
 DATALOADERS = {'normal': set_dataloader, 'ml': set_ml_dataloader}
 LABEL2INT = {'clear': 0, 'mask': 1, '?': -1}
@@ -90,6 +93,37 @@ def dump_dict(path, dict_):
         json.dump(dict_, f, indent=4)
 
 
+class LoadDataSet(ManifestWaveDataSet):
+    def __init__(self, manifest_path, data_conf, phase='train', load_func=None, transform=None, label_func=None):
+        super(LoadDataSet, self).__init__(manifest_path, data_conf, phase, load_func, transform, label_func)
+
+    def __getitem__(self, idx):
+        try:
+            x = torch.load(self.path_df.iloc[idx, 0].replace('.wav', '.pt'))
+        except FileNotFoundError as e:
+            print(e)
+            return super().__getitem__(idx)
+        # print(x.size())
+        label = self.labels[idx]
+
+        return x, label
+
+
+def parallel_logmel(expt_conf, load_func, label_func):
+    def parallel_preprocess(dataset, idx):
+        processed, _ = dataset[idx]
+        path = dataset.path_df.iloc[idx, 0]
+        torch.save(processed.to('cpu'), path.replace('.wav', '.pt'))
+
+    for phase in tqdm(['train', 'infer']):
+        process_func = Preprocessor(expt_conf, phase).preprocess
+        dataset = ManifestWaveDataSet(expt_conf[f'{phase}_path'], expt_conf, phase, load_func, process_func,
+                                      label_func)
+        Parallel(n_jobs=1, verbose=0)(
+            [delayed(parallel_preprocess)(dataset, idx) for idx in range(len(dataset))])
+        print(f'{phase} done')
+
+
 def main(expt_conf, hyperparameters, typical_train_func):
     if expt_conf['expt_id'] == 'timestamp':
         expt_conf['expt_id'] = dt.today().strftime('%Y-%m-%d_%H:%M')
@@ -105,8 +139,6 @@ def main(expt_conf, hyperparameters, typical_train_func):
     metrics_names = {'train': ['loss', 'uar'], 'val': ['loss', 'uar'], 'infer': []}
 
     expt_conf['sample_rate'] = 16000
-
-    dataset_cls = ManifestWaveDataSet
 
     manifest_df = pd.read_csv(expt_conf['manifest_path'])
     expt_conf = set_data_paths(expt_conf, phases=['train', 'val', 'infer'])
@@ -176,6 +208,11 @@ def main(expt_conf, hyperparameters, typical_train_func):
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
         load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
+
+        parallel_logmel(expt_conf, load_func, label_func)
+
+        dataset_cls = LoadDataSet
+
         experimentor = BaseExperimentor(expt_conf, load_func, label_func, process_func=None, dataset_cls=dataset_cls)
 
         metrics = {p: get_metric_list(metrics_names[p]) for p in phases}
