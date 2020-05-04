@@ -210,7 +210,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
         load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
 
-        # parallel_logmel(expt_conf, load_func, label_func)
+        parallel_logmel(expt_conf, load_func, label_func)
 
         dataset_cls = LoadDataSet
 
@@ -258,10 +258,10 @@ if __name__ == '__main__':
         }
     else:
         hyperparameters = {
-            'lr': [1e-3, 1e-4],
+            'lr': [1e-4],
             'batch_size': [16],
             'model_type': ['panns'],
-            'transform': [None],
+            'transform': ['logmel'],
             'kl_penalty': [0.0],
             'entropy_penalty': [0.0],
             'loss_func': ['ce'],

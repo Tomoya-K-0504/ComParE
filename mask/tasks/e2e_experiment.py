@@ -265,11 +265,11 @@ if __name__ == '__main__':
             'cnn_kernel_sizes': [[[4]] * 4],
             'cnn_stride_sizes': [[[4]] * 4],
             'cnn_padding_sizes': [[[0]] * 4],
-            'lr': [1e-4],
+            'lr': [1e-4, 1e-5],
         }
     elif expt_conf['model_type'] == 'cnn_rnn':
         hyperparameters = {
-            'lr': [1e-4],
+            'lr': [1e-4, 1e-5],
             'transform': [None],
             'cnn_channel_list': [[4, 8, 16, 32]],
             'cnn_kernel_sizes': [[[4]] * 4],
@@ -277,17 +277,17 @@ if __name__ == '__main__':
             'cnn_padding_sizes': [[[1]] * 4],
             'rnn_type': [expt_conf['rnn_type']],
             'bidirectional': [True],
-            'rnn_n_layers': [1, 2],
+            'rnn_n_layers': [2],
             'rnn_hidden_size': [10, 50],
         }
     elif expt_conf['model_type'] == 'rnn':
         hyperparameters = {
             'bidirectional': [True, False],
             'rnn_type': ['lstm', 'gru'],
-            'rnn_n_layers': [1, 2],
+            'rnn_n_layers': [2],
             'rnn_hidden_size': [10, 50],
             'transform': [None],
-            'lr': [1e-4],
+            'lr': [1e-4, 1e-5],
         }
     else:
         hyperparameters = {
