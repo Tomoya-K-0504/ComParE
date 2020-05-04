@@ -43,8 +43,9 @@ def label_func(row):
     return LABEL2INT[row[1]]
 
 
-def set_load_func(data_dir, sr, n_waves):
+def set_load_func(data_dir, sr, n_waves, rnn=False):
     const_length = sr * 1
+    n_features = 500 if rnn else 1
 
     def one_wave_load_func(path):
         wave = load(f'{data_dir}/{path[0]}', sr=sr)[0]
@@ -59,7 +60,7 @@ def set_load_func(data_dir, sr, n_waves):
             waves[i * const_length:(i + 1) * const_length] = wave
 
         assert waves.shape[0] == const_length * n_waves, f'{waves.shape[0]}, {const_length * n_waves}'
-        return waves.reshape((1, -1))
+        return waves.reshape((n_features, -1))
 
     if n_waves == 1:
         return one_wave_load_func
@@ -160,7 +161,7 @@ def main(expt_conf, hyperparameters, typical_train_func):
         expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in pattern])}.pth")
         expt_conf['log_id'] = f"{'_'.join([str(p).replace('/', '-') for p in pattern])}"
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
-        load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
+        load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'], expt_conf['model_type'] == 'rnn')
 
         with mlflow.start_run():
             mlflow.set_tag('target', expt_conf['target'])
@@ -208,11 +209,11 @@ def main(expt_conf, hyperparameters, typical_train_func):
         expt_conf['model_path'] = str(expt_dir / f"{'_'.join([str(p).replace('/', '-') for p in best_pattern])}.pth")
         expt_conf = set_data_paths(expt_conf, phases=['train', 'infer'])
         wav_path = Path(expt_conf['manifest_path']).resolve().parents[1] / 'wav'
-        load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'])
+        load_func = set_load_func(wav_path, expt_conf['sample_rate'], expt_conf['n_waves'], expt_conf['model_type'] == 'rnn')
 
         # parallel_logmel(expt_conf, load_func, label_func)
 
-        dataset_cls = LoadDataSet
+        dataset_cls = ManifestWaveDataSet
 
         experimentor = BaseExperimentor(expt_conf, load_func, label_func, process_func=None, dataset_cls=dataset_cls)
 
@@ -237,7 +238,7 @@ if __name__ == '__main__':
 
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("[%(name)s] [%(levelname)s] %(message)s"))
-    console.setLevel(logging.DEBUG)
+    console.setLevel(logging.INFO)
     logging.getLogger("ml").addHandler(console)
 
     if 'debug' in expt_conf['expt_id']:
@@ -256,16 +257,48 @@ if __name__ == '__main__':
             'time_drop_rate': [0.0],
             'freq_drop_rate': [0.0],
         }
+    elif expt_conf['model_type'] == 'cnn':
+        hyperparameters = {
+            'model_type': ['cnn'],
+            'transform': [None],
+            'cnn_channel_list': [[4, 8, 16, 32]],
+            'cnn_kernel_sizes': [[[4]] * 4],
+            'cnn_stride_sizes': [[[4]] * 4],
+            'cnn_padding_sizes': [[[0]] * 4],
+            'lr': [1e-4],
+        }
+    elif expt_conf['model_type'] == 'cnn_rnn':
+        hyperparameters = {
+            'lr': [1e-4],
+            'transform': [None],
+            'cnn_channel_list': [[4, 8, 16, 32]],
+            'cnn_kernel_sizes': [[[4]] * 4],
+            'cnn_stride_sizes': [[[2]] * 4],
+            'cnn_padding_sizes': [[[1]] * 4],
+            'rnn_type': [expt_conf['rnn_type']],
+            'bidirectional': [True],
+            'rnn_n_layers': [1, 2],
+            'rnn_hidden_size': [10, 50],
+        }
+    elif expt_conf['model_type'] == 'rnn':
+        hyperparameters = {
+            'bidirectional': [True, False],
+            'rnn_type': ['lstm', 'gru'],
+            'rnn_n_layers': [1, 2],
+            'rnn_hidden_size': [10, 50],
+            'transform': [None],
+            'lr': [1e-4],
+        }
     else:
         hyperparameters = {
             'lr': [1e-3, 1e-4],
-            'batch_size': [16],
-            'model_type': ['panns'],
+            'batch_size': [256],
+            'model_type': ['cnn'],
             'transform': [None],
             'kl_penalty': [0.0],
             'entropy_penalty': [0.0],
             'loss_func': ['ce'],
-            'checkpoint_path': ['../cnn14.pth'],
+            # 'checkpoint_path': ['../cnn14.pth'],
             'window_size': [0.05],
             'window_stride': [0.002],
             'n_waves': [1],
